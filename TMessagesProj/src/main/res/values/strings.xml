@@ -2668,6 +2668,7 @@
     <string name="DeleteProxyMultiConfirm">Are you sure you want to delete these proxies?</string>
     <string name="UseProxyTitle">Proxy Server</string>
     <string name="UseProxySettings">Use Proxy</string>
+    <string name="TryConnectionThroughIPv6">Try connection through IPv6</string>
     <string name="UseProxyAddress">Server</string>
     <string name="UseProxyPassword">Password</string>
     <string name="UseProxyPort">Port</string>

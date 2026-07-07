@@ -86,10 +86,12 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
 
     private boolean useProxySettings;
     private boolean useProxyForCalls;
+    private boolean forceTryIpV6;
 
     private int rowCount;
     @Keep
     private int useProxyRow;
+    private int tryIpv6Row;
     private int useProxyShadowRow;
     private int connectionsHeaderRow;
     private int proxyStartRow;
@@ -344,6 +346,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         final SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         useProxySettings = preferences.getBoolean("proxy_enabled", false) && !SharedConfig.proxyList.isEmpty();
         useProxyForCalls = preferences.getBoolean("proxy_enabled_calls", false);
+        forceTryIpV6 = ConnectionsManager.isForceTryIpV6UserEnabled();
 
         updateRows(true);
 
@@ -452,6 +455,11 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 SharedConfig.saveConfig();
 
                 updateRows(true);
+            } else if (position == tryIpv6Row) {
+                forceTryIpV6 = !forceTryIpV6;
+                TextCheckCell textCheckCell = (TextCheckCell) view;
+                textCheckCell.setChecked(forceTryIpV6);
+                ConnectionsManager.setForceTryIpV6UserEnabled(forceTryIpV6);
             } else if (position == callsRow) {
                 useProxyForCalls = !useProxyForCalls;
                 TextCheckCell textCheckCell = (TextCheckCell) view;
@@ -628,6 +636,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private void updateRows(boolean notify) {
         rowCount = 0;
         useProxyRow = rowCount++;
+        tryIpv6Row = rowCount++;
         if (useProxySettings && SharedConfig.currentProxy != null && SharedConfig.proxyList.size() > 1 && IS_PROXY_ROTATION_AVAILABLE) {
             rotationRow = rowCount++;
             if (SharedConfig.proxyRotationEnabled) {
@@ -907,7 +916,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 case VIEW_TYPE_TEXT_CHECK: {
                     TextCheckCell checkCell = (TextCheckCell) holder.itemView;
                     if (position == useProxyRow) {
-                        checkCell.setTextAndCheck(getString(R.string.UseProxySettings), useProxySettings, rotationRow != -1);
+                        checkCell.setTextAndCheck(getString(R.string.UseProxySettings), useProxySettings, true);
+                    } else if (position == tryIpv6Row) {
+                        checkCell.setTextAndCheck(getString(R.string.TryConnectionThroughIPv6), forceTryIpV6, rotationRow != -1);
                     } else if (position == callsRow) {
                         checkCell.setTextAndCheck(getString(R.string.UseProxyForCalls), useProxyForCalls, false);
                     } else if (position == rotationRow) {
@@ -967,6 +978,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 TextCheckCell checkCell = (TextCheckCell) holder.itemView;
                 if (position == useProxyRow) {
                     checkCell.setChecked(useProxySettings);
+                } else if (position == tryIpv6Row) {
+                    checkCell.setChecked(forceTryIpV6);
                 } else if (position == callsRow) {
                     checkCell.setChecked(useProxyForCalls);
                 } else if (position == rotationRow) {
@@ -985,6 +998,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 int position = holder.getAdapterPosition();
                 if (position == useProxyRow) {
                     checkCell.setChecked(useProxySettings);
+                } else if (position == tryIpv6Row) {
+                    checkCell.setChecked(forceTryIpV6);
                 } else if (position == callsRow) {
                     checkCell.setChecked(useProxyForCalls);
                 } else if (position == rotationRow) {
@@ -996,7 +1011,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == useProxyRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
+            return position == useProxyRow || position == tryIpv6Row || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
         }
 
         @Override
@@ -1046,6 +1061,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return -3;
             } else if (position == useProxyRow) {
                 return -4;
+            } else if (position == tryIpv6Row) {
+                return -12;
             } else if (position == callsRow) {
                 return -5;
             } else if (position == connectionsHeaderRow) {
@@ -1071,7 +1088,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SHADOW;
             } else if (position == proxyAddRow || position == deleteAllRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == useProxyRow || position == rotationRow || position == callsRow) {
+            } else if (position == useProxyRow || position == tryIpv6Row || position == rotationRow || position == callsRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;
