@@ -141,6 +141,8 @@ public class ConnectionsManager extends BaseController {
     };
 
     private boolean forceTryIpV6;
+    public static final String FORCE_TRY_IPV6 = "forceTryIpV6";
+    public static final String FORCE_TRY_IPV6_USER = "forceTryIpV6User";
 
     static {
         ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(CORE_POOL_SIZE, MAXIMUM_POOL_SIZE, KEEP_ALIVE_SECONDS, TimeUnit.SECONDS, sPoolWorkQueue, sThreadFactory);
@@ -152,6 +154,32 @@ public class ConnectionsManager extends BaseController {
         if (this.forceTryIpV6 != forceTryIpV6) {
             this.forceTryIpV6 = forceTryIpV6;
             checkConnection();
+        }
+    }
+
+    public static boolean isForceTryIpV6UserEnabled() {
+        return getMainPreferences(0).getBoolean(FORCE_TRY_IPV6_USER, false);
+    }
+
+    public static boolean isForceTryIpV6Enabled(SharedPreferences preferences) {
+        return isForceTryIpV6UserEnabled() || preferences.getBoolean(FORCE_TRY_IPV6, false);
+    }
+
+    public static void setForceTryIpV6UserEnabled(boolean enabled) {
+        getMainPreferences(0).edit().putBoolean(FORCE_TRY_IPV6_USER, enabled).commit();
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            ConnectionsManager instance = Instance[a];
+            if (instance != null) {
+                instance.setForceTryIpV6(isForceTryIpV6Enabled(getMainPreferences(a)));
+            }
+        }
+    }
+
+    private static SharedPreferences getMainPreferences(int account) {
+        if (account == 0) {
+            return ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+        } else {
+            return ApplicationLoader.applicationContext.getSharedPreferences("mainconfig" + account, Activity.MODE_PRIVATE);
         }
     }
 
@@ -257,7 +285,7 @@ public class ConnectionsManager extends BaseController {
         } else {
             mainPreferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig" + currentAccount, Activity.MODE_PRIVATE);
         }
-        forceTryIpV6 = mainPreferences.getBoolean("forceTryIpV6", false);
+        forceTryIpV6 = isForceTryIpV6Enabled(mainPreferences);
         boolean userPremium = false;
         if (getUserConfig().getCurrentUser() != null) {
             userPremium = getUserConfig().getCurrentUser().premium;

@@ -5786,11 +5786,11 @@ public class MessagesController extends BaseController implements NotificationCe
             editor.putString("dcDomainName2", dcDomainName);
             editor.putInt("webFileDatacenterId", webFileDatacenterId);
             editor.putString("suggestedLangCode", suggestedLangCode);
-            editor.putBoolean("forceTryIpV6", forceTryIpV6);
+            editor.putBoolean(ConnectionsManager.FORCE_TRY_IPV6, forceTryIpV6);
             editor.putString("autologinToken", autologinToken = config.autologin_token);
             editor.commit();
 
-            getConnectionsManager().setForceTryIpV6(forceTryIpV6);
+            getConnectionsManager().setForceTryIpV6(ConnectionsManager.isForceTryIpV6Enabled(mainPreferences));
             LocaleController.getInstance().checkUpdateForCurrentRemoteLocale(currentAccount, config.lang_pack_version, config.base_lang_pack_version);
             getNotificationCenter().postNotificationName(NotificationCenter.configLoaded);
         });
