@@ -289,7 +289,7 @@ void Connection::connect() {
     isMediaConnection = false;
     uint8_t strategy = ConnectionsManager::getInstance(currentDatacenter->instanceNum).getIpStratagy();
     uint32_t ipv6;
-    if (strategy == USE_IPV6_ONLY) {
+    if (strategy == USE_IPV6_ONLY || strategy == USE_IPV6_USER_ONLY) {
         ipv6 = TcpAddressFlagIpv6;
     } else if (strategy == USE_IPV4_IPV6_RANDOM) {
         if (ConnectionsManager::getInstance(currentDatacenter->instanceNum).lastProtocolUsefullData) {
@@ -365,7 +365,9 @@ void Connection::connect() {
     wasConnected = false;
     hasSomeDataSinceLastConnect = false;
     openConnection(hostAddress, hostPort, secret, ipv6 != 0, ConnectionsManager::getInstance(currentDatacenter->instanceNum).currentNetworkType);
-    if (connectionType == ConnectionTypeProxy) {
+    if (strategy == USE_IPV6_USER_ONLY && ipv6 != 0) {
+        setTimeout(5);
+    } else if (connectionType == ConnectionTypeProxy) {
         setTimeout(5);
     } else if (connectionType == ConnectionTypePush) {
         if (isTryingNextPort) {

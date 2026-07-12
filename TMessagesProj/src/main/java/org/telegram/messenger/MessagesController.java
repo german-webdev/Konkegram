@@ -5790,7 +5790,7 @@ public class MessagesController extends BaseController implements NotificationCe
             editor.putString("autologinToken", autologinToken = config.autologin_token);
             editor.commit();
 
-            getConnectionsManager().setForceTryIpV6(ConnectionsManager.isForceTryIpV6Enabled(mainPreferences));
+            getConnectionsManager().setForceTryIpV6(forceTryIpV6);
             LocaleController.getInstance().checkUpdateForCurrentRemoteLocale(currentAccount, config.lang_pack_version, config.base_lang_pack_version);
             getNotificationCenter().postNotificationName(NotificationCenter.configLoaded);
         });
