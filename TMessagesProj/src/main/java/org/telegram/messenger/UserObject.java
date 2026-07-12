@@ -20,6 +20,7 @@ public class UserObject {
 
     public static final long REPLY_BOT = 1271266957L;
     public static final long ANONYMOUS = 2666000L;
+    public static final long NOTIFICATIONS = 777000L;
     public static final long VERIFY = 489000L;
 
     public static final long OAUTH = 489001L;
@@ -52,10 +53,17 @@ public class UserObject {
         return did == 708513 || did == REPLY_BOT;
     }
 
+    public static boolean isNotificationsUser(TLRPC.User user) {
+        return user != null && user.id == NOTIFICATIONS;
+    }
+
     @NonNull
     public static String getUserName(TLRPC.User user) {
         if (user == null || isDeleted(user)) {
             return LocaleController.getString(R.string.HiddenName);
+        }
+        if (isNotificationsUser(user)) {
+            return "Konkegram Notifications";
         }
         String name = AndroidUtilities.removeRTL(AndroidUtilities.removeDiacritics(ContactsController.formatName(user.first_name, user.last_name)));
         return name.length() != 0 || TextUtils.isEmpty(user.phone) ? name : PhoneFormat.getInstance().format("+" + user.phone);
@@ -109,6 +117,9 @@ public class UserObject {
         if (user == null || isDeleted(user)) {
             return "DELETED";
         }
+        if (isNotificationsUser(user)) {
+            return "Konkegram";
+        }
         String name = user.first_name;
         if (TextUtils.isEmpty(name)) {
             name = user.last_name;
@@ -121,6 +132,9 @@ public class UserObject {
     public static String getForcedFirstName(TLRPC.User user) {
         if (user == null || isDeleted(user)) {
             return LocaleController.getString(R.string.HiddenName);
+        }
+        if (isNotificationsUser(user)) {
+            return "Konkegram";
         }
         String name = user.first_name;
         if (TextUtils.isEmpty(name)) {
@@ -177,7 +191,7 @@ public class UserObject {
     }
 
     public static boolean isService(long user_id) {
-        return user_id == 333000 || user_id == 777000 || user_id == 42777;
+        return user_id == 333000 || user_id == NOTIFICATIONS || user_id == 42777;
     }
 
     public static MessagesController.PeerColor getPeerColorForAvatar(int currentAccount, TLRPC.User user) {

@@ -3038,6 +3038,9 @@ public class ContactsController extends BaseController {
         if (user == null) {
             return "";
         }
+        if (UserObject.isNotificationsUser(user)) {
+            return UserObject.getUserName(user);
+        }
         return formatName(user.first_name, user.last_name, 0);
     }
 
@@ -3061,6 +3064,9 @@ public class ContactsController extends BaseController {
         }
         if (lastName != null) {
             lastName = lastName.trim();
+        }
+        if ("Telegram".equals(firstName) && "Notifications".equals(lastName)) {
+            return "Konkegram Notifications";
         }
         StringBuilder result = new StringBuilder((firstName != null ? firstName.length() : 0) + (lastName != null ? lastName.length() : 0) + 1);
         if (LocaleController.nameDisplayOrder == 1) {

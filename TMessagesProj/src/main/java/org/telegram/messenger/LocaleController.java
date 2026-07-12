@@ -1452,6 +1452,24 @@ public class LocaleController {
         if (value == null) {
             value = "LOC_ERR:" + key;
         }
+        return applyKonkegramBrand(value);
+    }
+
+    public static String applyKonkegramBrand(String value) {
+        if (TextUtils.isEmpty(value) || (!value.contains("Telegram") && !value.contains("TELEGRAM"))) {
+            return value;
+        }
+        String trimmedValue = value.trim();
+        if (trimmedValue.startsWith("http://") || trimmedValue.startsWith("https://") || trimmedValue.startsWith("tg://")) {
+            return value;
+        }
+        return value.replace("TELEGRAM", "KONKEGRAM").replace("Telegram", "Konkegram");
+    }
+
+    public static CharSequence applyKonkegramBrand(CharSequence value) {
+        if (value instanceof String) {
+            return applyKonkegramBrand((String) value);
+        }
         return value;
     }
 
@@ -1463,7 +1481,7 @@ public class LocaleController {
                 value = ApplicationLoader.applicationContext.getString(resourceId);
             }
         }
-        return value;
+        return applyKonkegramBrand(value);
     }
 
     public static String getString(@StringRes int res) {
@@ -1615,6 +1633,7 @@ public class LocaleController {
                 int resourceId = ApplicationLoader.applicationContext.getResources().getIdentifier(key + "_other", "string", ApplicationLoader.applicationContext.getPackageName());
                 value = ApplicationLoader.applicationContext.getString(resourceId);
             }
+            value = applyKonkegramBrand(value);
             value = value.replace("%d", "%1$s");
             value = value.replace("%1$d", "%1$s");
 
@@ -1693,6 +1712,7 @@ public class LocaleController {
                 }
             }
 
+            value = applyKonkegramBrand(value);
             if (getInstance().currentLocale != null) {
                 return String.format(getInstance().currentLocale, value, args);
             } else {
@@ -1742,6 +1762,7 @@ public class LocaleController {
                 }
             }
 
+            value = applyKonkegramBrand(value);
             SpannableStringBuilder builder = new SpannableStringBuilder(value);
             for (int i = 0; i < args.length; i++) {
                 String formatter = "s";
