@@ -3726,7 +3726,7 @@ public class MessageObject {
         if (isFromUser()) {
             fromUser = MessagesController.getInstance(currentAccount).getUser(messageOwner.from_id.user_id);
         }
-        messageText = text;
+        messageText = isNotificationsServiceMessage() ? LocaleController.applyKonkegramBrand(text) : text;
         final ArrayList<TLRPC.MessageEntity> entities = getEntities();
         final TextPaint paint;
         if (getMedia(messageOwner) instanceof TLRPC.TL_messageMediaGame) {
@@ -3743,6 +3743,10 @@ public class MessageObject {
         checkEmojiOnly(emojiOnly);
         generateLayout(fromUser);
         setType();
+    }
+
+    private boolean isNotificationsServiceMessage() {
+        return messageOwner != null && getDialogId(messageOwner) == UserObject.NOTIFICATIONS;
     }
 
     private boolean allowsBigEmoji() {
@@ -6020,6 +6024,9 @@ public class MessageObject {
 
         if (messageText == null) {
             messageText = "";
+        }
+        if (isNotificationsServiceMessage()) {
+            messageText = LocaleController.applyKonkegramBrand(messageText);
         }
 
         isEmbedVideoCached = null;

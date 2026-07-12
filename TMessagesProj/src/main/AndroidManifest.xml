@@ -115,7 +115,7 @@
 
         <activity-alias
             android:enabled="true"
-            android:name="org.telegram.messenger.DefaultIcon"
+            android:name="${applicationId}.DefaultIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:exported="true">
 
@@ -129,7 +129,7 @@
 
         <activity-alias
             android:enabled="false"
-            android:name="org.telegram.messenger.VintageIcon"
+            android:name="${applicationId}.VintageIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_6_launcher"
             android:roundIcon="@mipmap/icon_6_launcher_round"
@@ -145,7 +145,7 @@
 
         <activity-alias
             android:enabled="false"
-            android:name="org.telegram.messenger.AquaIcon"
+            android:name="${applicationId}.AquaIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_4_launcher"
             android:roundIcon="@mipmap/icon_4_launcher_round"
@@ -161,7 +161,7 @@
 
         <activity-alias
             android:enabled="false"
-            android:name="org.telegram.messenger.PremiumIcon"
+            android:name="${applicationId}.PremiumIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_3_launcher"
             android:roundIcon="@mipmap/icon_3_launcher_round"
@@ -177,7 +177,7 @@
 
         <activity-alias
             android:enabled="false"
-            android:name="org.telegram.messenger.TurboIcon"
+            android:name="${applicationId}.TurboIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_5_launcher"
             android:roundIcon="@mipmap/icon_5_launcher_round"
@@ -193,7 +193,7 @@
 
         <activity-alias
             android:enabled="false"
-            android:name="org.telegram.messenger.NoxIcon"
+            android:name="${applicationId}.NoxIcon"
             android:targetActivity="org.telegram.ui.LaunchActivity"
             android:icon="@mipmap/icon_2_launcher"
             android:roundIcon="@mipmap/icon_2_launcher_round"
