@@ -289,7 +289,7 @@ void Connection::connect() {
     isMediaConnection = false;
     uint8_t strategy = ConnectionsManager::getInstance(currentDatacenter->instanceNum).getIpStratagy();
     uint32_t ipv6;
-    if (strategy == USE_IPV6_ONLY || strategy == USE_IPV6_PREFERRED) {
+    if (strategy == USE_IPV6_ONLY || strategy == USE_IPV6_USER_ONLY) {
         ipv6 = TcpAddressFlagIpv6;
     } else if (strategy == USE_IPV4_IPV6_RANDOM) {
         if (ConnectionsManager::getInstance(currentDatacenter->instanceNum).lastProtocolUsefullData) {
@@ -365,7 +365,7 @@ void Connection::connect() {
     wasConnected = false;
     hasSomeDataSinceLastConnect = false;
     openConnection(hostAddress, hostPort, secret, ipv6 != 0, ConnectionsManager::getInstance(currentDatacenter->instanceNum).currentNetworkType);
-    if (strategy == USE_IPV6_PREFERRED && ipv6 != 0) {
+    if (strategy == USE_IPV6_USER_ONLY && ipv6 != 0) {
         setTimeout(5);
     } else if (connectionType == ConnectionTypeProxy) {
         setTimeout(5);
@@ -659,11 +659,6 @@ inline void Connection::encryptKeyWithSecret(uint8_t *bytes, uint8_t secretType)
 void Connection::onDisconnectedInternal(int32_t reason, int32_t error) {
     reconnectTimer->stop();
     if (LOGS_ENABLED) DEBUG_D("connection(%p, account%u, dc%u, type %d) disconnected with reason %d", this, currentDatacenter->instanceNum, currentDatacenter->getDatacenterId(), connectionType, reason);
-    ConnectionsManager &connectionsManager = ConnectionsManager::getInstance(currentDatacenter->instanceNum);
-    if (connectionsManager.getIpStratagy() == USE_IPV6_PREFERRED && (!wasConnected || !hasSomeDataSinceLastConnect)) {
-        if (LOGS_ENABLED) DEBUG_D("IPv6 preferred connection failed, enabling IPv4 fallback");
-        connectionsManager.setIpStrategy(USE_IPV4_IPV6_RANDOM);
-    }
     bool switchToNextPort = reason == 2 && wasConnected && (!hasSomeDataSinceLastConnect || currentDatacenter->isCustomPort(currentAddressFlags)) || forceNextPort;
     if (connectionType == ConnectionTypeGeneric || connectionType == ConnectionTypeTemp || connectionType == ConnectionTypeGenericMedia) {
         if (wasConnected && reason == 2 && currentTimeout < 16) {
