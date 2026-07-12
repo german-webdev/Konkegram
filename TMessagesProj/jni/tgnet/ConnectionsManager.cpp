@@ -3859,7 +3859,12 @@ void ConnectionsManager::setNetworkAvailable(bool value, int32_t type, bool slow
 
 void ConnectionsManager::setIpStrategy(uint8_t value) {
     scheduleTask([&, value] {
-        lastProtocolUsefullData = false;
+        if (ipStrategy == USE_IPV6_PREFERRED && value == USE_IPV4_IPV6_RANDOM) {
+            lastProtocolIsIpv6 = false;
+            lastProtocolUsefullData = true;
+        } else {
+            lastProtocolUsefullData = false;
+        }
         ipStrategy = value;
     });
 }

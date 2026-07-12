@@ -110,6 +110,7 @@ public class ConnectionsManager extends BaseController {
     public final static byte USE_IPV4_ONLY = 0;
     public final static byte USE_IPV6_ONLY = 1;
     public final static byte USE_IPV4_IPV6_RANDOM = 2;
+    public final static byte USE_IPV6_PREFERRED = 3;
 
     private static long lastDnsRequestTime;
 
@@ -141,6 +142,7 @@ public class ConnectionsManager extends BaseController {
     };
 
     private boolean forceTryIpV6;
+    private boolean preferIpV6;
     public static final String FORCE_TRY_IPV6 = "forceTryIpV6";
     public static final String FORCE_TRY_IPV6_USER = "forceTryIpV6User";
 
@@ -157,12 +159,15 @@ public class ConnectionsManager extends BaseController {
         }
     }
 
-    public static boolean isForceTryIpV6UserEnabled() {
-        return getMainPreferences(0).getBoolean(FORCE_TRY_IPV6_USER, false);
+    private void setPreferIpV6(boolean preferIpV6) {
+        if (this.preferIpV6 != preferIpV6) {
+            this.preferIpV6 = preferIpV6;
+            checkConnection();
+        }
     }
 
-    public static boolean isForceTryIpV6Enabled(SharedPreferences preferences) {
-        return isForceTryIpV6UserEnabled() || preferences.getBoolean(FORCE_TRY_IPV6, false);
+    public static boolean isForceTryIpV6UserEnabled() {
+        return getMainPreferences(0).getBoolean(FORCE_TRY_IPV6_USER, false);
     }
 
     public static void setForceTryIpV6UserEnabled(boolean enabled) {
@@ -170,7 +175,7 @@ public class ConnectionsManager extends BaseController {
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             ConnectionsManager instance = Instance[a];
             if (instance != null) {
-                instance.setForceTryIpV6(isForceTryIpV6Enabled(getMainPreferences(a)));
+                instance.setPreferIpV6(enabled);
             }
         }
     }
@@ -285,7 +290,8 @@ public class ConnectionsManager extends BaseController {
         } else {
             mainPreferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig" + currentAccount, Activity.MODE_PRIVATE);
         }
-        forceTryIpV6 = isForceTryIpV6Enabled(mainPreferences);
+        forceTryIpV6 = mainPreferences.getBoolean(FORCE_TRY_IPV6, false);
+        preferIpV6 = isForceTryIpV6UserEnabled();
         boolean userPremium = false;
         if (getUserConfig().getCurrentUser() != null) {
             userPremium = getUserConfig().getCurrentUser().premium;
@@ -1115,6 +1121,9 @@ public class ConnectionsManager extends BaseController {
                 }
             }
             if (hasIpv6) {
+                if (preferIpV6) {
+                    return USE_IPV6_PREFERRED;
+                }
                 if (forceTryIpV6) {
                     return USE_IPV6_ONLY;
                 }
