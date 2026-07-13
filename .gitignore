@@ -5,6 +5,7 @@ obj/
 *.iml
 local.properties
 TMessagesProj/.cxx/
+TMessagesProj/config/konkegram-release.keystore
 TMessagesProj/jniLibs/
 TMessagesProj/jniRes/
 **/.DS_Store
