@@ -16,7 +16,7 @@ concurrency:
 jobs:
   release:
     name: Build release APK and AAB
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       ORG_GRADLE_PROJECT_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -43,7 +43,18 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android build tools
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.10.2"
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          cmake_path="$(readlink -f "$(command -v cmake)")"
+          cmake_version="$(cmake --version | awk 'NR == 1 { print $3 }')"
+          cmake_dir="$(dirname "$(dirname "$cmake_path")")"
+
+          echo "Using CMake ${cmake_version} from ${cmake_dir}"
+          echo "ORG_GRADLE_PROJECT_KONKEGRAM_CMAKE_VERSION=${cmake_version}" >> "$GITHUB_ENV"
+          printf 'cmake.dir=%s\n' "$cmake_dir" > local.properties
 
       - name: Restore release credentials
         env:
