@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   release:
-    name: Build release APK and AAB
+    name: Build release APKs
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -71,31 +71,39 @@ jobs:
           chmod +x gradlew
           ./gradlew \
             :TMessagesProj_App:assembleAfatRelease \
-            :TMessagesProj_App:bundleAfatRelease \
+            :TMessagesProj_App:assembleArm64Release \
+            :TMessagesProj_App:assembleArmv7Release \
             --stacktrace \
             --no-daemon
 
       - name: Prepare release files
         shell: bash
         run: |
-          apk_path=$(find TMessagesProj_App/build/outputs/apk -type f -name '*.apk' -print -quit)
-          aab_path=$(find TMessagesProj_App/build/outputs/bundle -type f -name '*.aab' -print -quit)
+          version_name=$(sed -n 's/^APP_VERSION_NAME=//p' gradle.properties)
+          universal_apk=$(find TMessagesProj_App/build/outputs/apk/afat/release -type f -name '*.apk' -print -quit)
+          arm64_apk=$(find TMessagesProj_App/build/outputs/apk/arm64/release -type f -name '*.apk' -print -quit)
+          armv7_apk=$(find TMessagesProj_App/build/outputs/apk/armv7/release -type f -name '*.apk' -print -quit)
 
-          if [ -z "$apk_path" ] || [ -z "$aab_path" ]; then
-            echo "::error::Release APK or AAB was not produced"
+          if [ -z "$version_name" ] || [ -z "$universal_apk" ] || [ -z "$arm64_apk" ] || [ -z "$armv7_apk" ]; then
+            echo "::error::One or more release APKs were not produced"
             exit 1
           fi
 
-          build_label=${GITHUB_REF_NAME//\//-}
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$version_name" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match APP_VERSION_NAME=$version_name"
+            exit 1
+          fi
+
           mkdir -p release
-          cp "$apk_path" "release/Konkegram-${build_label}.apk"
-          cp "$aab_path" "release/Konkegram-${build_label}.aab"
-          sha256sum release/*.apk release/*.aab > release/SHA256SUMS.txt
+          cp "$arm64_apk" "release/konkegram-v${version_name}-release-arm64-v8a.apk"
+          cp "$armv7_apk" "release/konkegram-v${version_name}-release-armeabi-v7a.apk"
+          cp "$universal_apk" "release/konkegram-v${version_name}-release-universal.apk"
+          sha256sum release/*.apk > release/SHA256SUMS.txt
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Konkegram-${{ github.ref_name }}-${{ github.run_number }}
+          name: konkegram-release-${{ github.ref_name }}-${{ github.run_number }}
           path: release/
           if-no-files-found: error
           retention-days: 30
@@ -105,7 +113,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_notes=$(cat <<'EOF'
+          ## APK downloads
+
+          - **Universal**: recommended for most users; supports ARM64, ARMv7, x86 and x86_64.
+          - **ARM64-v8a**: for most modern 64-bit Android phones and tablets.
+          - **Armeabi-v7a**: for older 32-bit ARM devices.
+
+          All APK variants require Android 5.0 or newer.
+          EOF
+          )
+
           gh release create "$GITHUB_REF_NAME" release/* \
             --verify-tag \
-            --title "Konkegram $GITHUB_REF_NAME" \
+            --title "Konkegram ${GITHUB_REF_NAME#v}" \
+            --notes "$release_notes" \
             --generate-notes
