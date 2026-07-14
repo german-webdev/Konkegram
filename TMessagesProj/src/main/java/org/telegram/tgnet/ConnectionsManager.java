@@ -649,9 +649,7 @@ public class ConnectionsManager extends BaseController {
         String proxySecret = preferences.getString("proxy_secret", "");
         int proxyPort = preferences.getInt("proxy_port", 1080);
 
-        if (preferences.getBoolean("proxy_enabled", false) && !TextUtils.isEmpty(proxyAddress)) {
-            native_setProxySettings(currentAccount, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
-        }
+        applyProxySettings(currentAccount, preferences.getBoolean("proxy_enabled", false), proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
         String installer = "";
         try {
             Context context = ApplicationLoader.applicationContext;
@@ -977,15 +975,33 @@ public class ConnectionsManager extends BaseController {
         }
 
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            if (enabled && !TextUtils.isEmpty(address)) {
-                native_setProxySettings(a, address, port, username, password, secret);
-            } else {
-                native_setProxySettings(a, "", 1080, "", "", "");
-            }
+            applyProxySettings(a, enabled, address, port, username, password, secret);
             AccountInstance accountInstance = AccountInstance.getInstance(a);
             if (accountInstance.getUserConfig().isClientActivated()) {
                 accountInstance.getMessagesController().checkPromoInfo(true);
             }
+        }
+    }
+
+    static void refreshProxySettings() {
+        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+        setProxySettings(
+                preferences.getBoolean("proxy_enabled", false),
+                preferences.getString("proxy_ip", ""),
+                preferences.getInt("proxy_port", 1080),
+                preferences.getString("proxy_user", ""),
+                preferences.getString("proxy_pass", ""),
+                preferences.getString("proxy_secret", "")
+        );
+    }
+
+    private static void applyProxySettings(int account, boolean enabled, String address, int port, String username, String password, String secret) {
+        if (TelegramWebSocketProxy.isReady()) {
+            native_setProxySettings(account, TelegramWebSocketProxy.getHost(), TelegramWebSocketProxy.getPort(), "", "", TelegramWebSocketProxy.getProxySecret());
+        } else if (enabled && !TextUtils.isEmpty(address)) {
+            native_setProxySettings(account, address, port, username, password, secret);
+        } else {
+            native_setProxySettings(account, "", 1080, "", "", "");
         }
     }
 
@@ -1013,6 +1029,9 @@ public class ConnectionsManager extends BaseController {
     public static native void native_setUserId(int currentAccount, long id);
     public static native void native_init(int currentAccount, int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, String installer, String packageId, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection, boolean hasNetwork, int networkType, int performanceClass);
     public static native void native_setProxySettings(int currentAccount, String address, int port, String username, String password, String secret);
+    public static native int native_startWebSocketProxy(int port, String cacheDir, String secret, boolean verbose);
+    public static native int native_stopWebSocketProxy();
+    public static native String native_getWebSocketProxyStats();
     public static native void native_setLangCode(int currentAccount, String langCode);
     public static native void native_setRegId(int currentAccount, String regId);
     public static native void native_setSystemLangCode(int currentAccount, String langCode);

@@ -12,6 +12,7 @@
 #include <openssl/bn.h>
 #include <openssl/pem.h>
 #include <openssl/aes.h>
+#include <dlfcn.h>
 
 JavaVM *java;
 
@@ -41,6 +42,84 @@ jmethodID jclass_ConnectionsManager_onIntegrityCheckClassic;
 jmethodID jclass_ConnectionsManager_onCaptchaCheck;
 
 bool check_utf8(const char *data, size_t len);
+
+namespace {
+void *tgWsProxyHandle = nullptr;
+using TgWsStartProxy = int (*)(const char *, int, const char *, const char *, int);
+using TgWsStopProxy = int (*)();
+using TgWsSetPoolSize = void (*)(int);
+using TgWsSetCacheDir = void (*)(const char *);
+using TgWsSetCfProxyConfig = void (*)(int, int, const char *);
+using TgWsGetStats = char *(*)();
+using TgWsFreeString = void (*)(char *);
+
+TgWsStartProxy tgWsStartProxy = nullptr;
+TgWsStopProxy tgWsStopProxy = nullptr;
+TgWsGetStats tgWsGetStats = nullptr;
+TgWsFreeString tgWsFreeString = nullptr;
+
+bool loadTgWsProxy() {
+    if (tgWsProxyHandle != nullptr) {
+        return tgWsStartProxy != nullptr && tgWsStopProxy != nullptr && tgWsGetStats != nullptr && tgWsFreeString != nullptr;
+    }
+    tgWsProxyHandle = dlopen("libtgwsproxy.so", RTLD_NOW | RTLD_LOCAL);
+    if (tgWsProxyHandle == nullptr) {
+        return false;
+    }
+    tgWsStartProxy = reinterpret_cast<TgWsStartProxy>(dlsym(tgWsProxyHandle, "StartProxy"));
+    tgWsStopProxy = reinterpret_cast<TgWsStopProxy>(dlsym(tgWsProxyHandle, "StopProxy"));
+    tgWsGetStats = reinterpret_cast<TgWsGetStats>(dlsym(tgWsProxyHandle, "GetStats"));
+    tgWsFreeString = reinterpret_cast<TgWsFreeString>(dlsym(tgWsProxyHandle, "FreeString"));
+    return tgWsStartProxy != nullptr && tgWsStopProxy != nullptr && tgWsGetStats != nullptr && tgWsFreeString != nullptr;
+}
+}
+
+jint startWebSocketProxy(JNIEnv *env, jclass, jint port, jstring cacheDir, jstring secret, jboolean verbose) {
+    if (!loadTgWsProxy()) {
+        return -10;
+    }
+    auto setPoolSize = reinterpret_cast<TgWsSetPoolSize>(dlsym(tgWsProxyHandle, "SetPoolSize"));
+    auto setCacheDir = reinterpret_cast<TgWsSetCacheDir>(dlsym(tgWsProxyHandle, "SetCfProxyCacheDir"));
+    auto setCfProxyConfig = reinterpret_cast<TgWsSetCfProxyConfig>(dlsym(tgWsProxyHandle, "SetCfProxyConfig"));
+    if (setPoolSize == nullptr || setCacheDir == nullptr || setCfProxyConfig == nullptr) {
+        return -11;
+    }
+
+    const char *cacheDirChars = env->GetStringUTFChars(cacheDir, nullptr);
+    const char *secretChars = env->GetStringUTFChars(secret, nullptr);
+    setPoolSize(4);
+    setCacheDir(cacheDirChars);
+    // Automatic mode mirrors the tested Android app: Cloudflare relay first,
+    // direct Telegram TCP only as a last-resort fallback.
+    setCfProxyConfig(1, 1, "");
+    int result = tgWsStartProxy(
+            "127.0.0.1",
+            port,
+            "",
+            secretChars,
+            verbose ? 1 : 0
+    );
+    env->ReleaseStringUTFChars(secret, secretChars);
+    env->ReleaseStringUTFChars(cacheDir, cacheDirChars);
+    return result;
+}
+
+jint stopWebSocketProxy(JNIEnv *, jclass) {
+    return loadTgWsProxy() ? tgWsStopProxy() : -10;
+}
+
+jstring getWebSocketProxyStats(JNIEnv *env, jclass) {
+    if (!loadTgWsProxy()) {
+        return env->NewStringUTF("");
+    }
+    char *stats = tgWsGetStats();
+    if (stats == nullptr) {
+        return env->NewStringUTF("");
+    }
+    jstring result = env->NewStringUTF(stats);
+    tgWsFreeString(stats);
+    return result;
+}
 
 jlong getFreeBuffer(JNIEnv *env, jclass c, jint length) {
     return (jlong) (intptr_t) BuffersStorage::getInstance().getFreeBuffer((uint32_t) length);
@@ -537,6 +616,9 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_bindRequestToGuid", "(III)V", (void *) bindRequestToGuid},
         {"native_applyDatacenterAddress", "(IILjava/lang/String;I)V", (void *) applyDatacenterAddress},
         {"native_setProxySettings", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V", (void *) setProxySettings},
+        {"native_startWebSocketProxy", "(ILjava/lang/String;Ljava/lang/String;Z)I", (void *) startWebSocketProxy},
+        {"native_stopWebSocketProxy", "()I", (void *) stopWebSocketProxy},
+        {"native_getWebSocketProxyStats", "()Ljava/lang/String;", (void *) getWebSocketProxyStats},
         {"native_getConnectionState", "(I)I", (void *) getConnectionState},
         {"native_setUserId", "(IJ)V", (void *) setUserId},
         {"native_init", "(IIIILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IJZZZII)V", (void *) init},

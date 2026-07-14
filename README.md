@@ -7,6 +7,7 @@ for Android client.
 
 - Konkegram branding for the main and beta applications.
 - Optional IPv6-only connection mode in proxy settings.
+- Optional DPI Bypass transport over TLS WebSockets.
 - Compatibility with Telegram accounts, chats and services.
 
 ## Downloads
@@ -40,4 +41,6 @@ Telegram.
 
 The source code is distributed under the terms of the
 [GNU General Public License v2.0](LICENSE). Third-party components may be
-covered by their respective licenses.
+covered by their respective licenses. The embedded TG WS Proxy component is
+distributed under GPLv3; its source and license are included in
+`TMessagesProj/jni/third_party/tgwsproxy`.

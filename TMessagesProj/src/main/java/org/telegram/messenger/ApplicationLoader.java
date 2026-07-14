@@ -38,6 +38,7 @@ import com.google.android.gms.common.GooglePlayServicesUtil;
 import org.json.JSONObject;
 import org.telegram.messenger.voip.VideoCapturerDevice;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TelegramWebSocketProxy;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.Components.ForegroundDetector;
@@ -193,6 +194,7 @@ public class ApplicationLoader extends Application {
         }
         applicationInited = true;
         NativeLoader.initNativeLibs(ApplicationLoader.applicationContext);
+        TelegramWebSocketProxy.initialize();
 
         try {
             LocaleController.getInstance(); //TODO improve
@@ -210,6 +212,10 @@ public class ApplicationLoader extends Application {
                     } catch (Throwable ignore) {
 
                     }
+
+                    Network activeNetwork = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                            ? connectivityManager.getActiveNetwork() : null;
+                    notifyWebSocketProxyNetworkChanged(activeNetwork, null);
 
                     boolean isSlow = isConnectionSlow();
                     for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
@@ -423,11 +429,23 @@ public class ApplicationLoader extends Application {
                             @Override
                             public void onAvailable(@NonNull Network network) {
                                 lastKnownNetworkType = -1;
+                                notifyWebSocketProxyNetworkChanged(network, connectivityManager.getNetworkCapabilities(network));
                             }
 
                             @Override
                             public void onCapabilitiesChanged(@NonNull Network network, @NonNull NetworkCapabilities networkCapabilities) {
                                 lastKnownNetworkType = -1;
+                                notifyWebSocketProxyNetworkChanged(network, networkCapabilities);
+                            }
+
+                            @Override
+                            public void onLost(@NonNull Network network) {
+                                lastKnownNetworkType = -1;
+                                Network activeNetwork = connectivityManager.getActiveNetwork();
+                                notifyWebSocketProxyNetworkChanged(
+                                        activeNetwork,
+                                        activeNetwork == null ? null : connectivityManager.getNetworkCapabilities(activeNetwork)
+                                );
                             }
                         };
                         connectivityManager.registerDefaultNetworkCallback(networkCallback);
@@ -437,6 +455,21 @@ public class ApplicationLoader extends Application {
 
             }
         }
+    }
+
+    private static void notifyWebSocketProxyNetworkChanged(Network network, NetworkCapabilities capabilities) {
+        long networkId = currentNetworkInfo == null ? -1 : currentNetworkInfo.getType();
+        boolean online = currentNetworkInfo != null && currentNetworkInfo.isConnected();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            networkId = network == null ? -1 : network.getNetworkHandle();
+            if (network != null && capabilities == null) {
+                capabilities = connectivityManager.getNetworkCapabilities(network);
+            }
+            online = capabilities != null
+                    && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        }
+        TelegramWebSocketProxy.onNetworkChanged(networkId, online);
     }
 
     public static boolean isRoaming() {
