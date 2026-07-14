@@ -90,12 +90,14 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private boolean useProxyForCalls;
     private boolean forceTryIpV6;
     private boolean dpiBypass;
+    private boolean cloudflareFallback;
 
     private int rowCount;
     @Keep
     private int useProxyRow;
     private int tryIpv6Row;
     private int dpiBypassRow;
+    private int cloudflareFallbackRow;
     private int useProxyShadowRow;
     private int connectionsHeaderRow;
     private int proxyStartRow;
@@ -352,6 +354,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         useProxyForCalls = preferences.getBoolean("proxy_enabled_calls", false);
         forceTryIpV6 = ConnectionsManager.isForceTryIpV6UserEnabled();
         dpiBypass = TelegramWebSocketProxy.isEnabled();
+        cloudflareFallback = TelegramWebSocketProxy.isCloudflareFallbackEnabled();
 
         updateRows(true);
 
@@ -486,6 +489,15 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
                 } else {
                     ((TextCheckCell) view).setChecked(false);
+                    Toast.makeText(getParentActivity(), getString(R.string.DpiBypassUnavailable), Toast.LENGTH_LONG).show();
+                }
+            } else if (position == cloudflareFallbackRow) {
+                boolean enable = !cloudflareFallback;
+                if (TelegramWebSocketProxy.setCloudflareFallbackEnabled(enable)) {
+                    cloudflareFallback = enable;
+                    ((TextCheckCell) view).setChecked(cloudflareFallback);
+                } else {
+                    ((TextCheckCell) view).setChecked(cloudflareFallback);
                     Toast.makeText(getParentActivity(), getString(R.string.DpiBypassUnavailable), Toast.LENGTH_LONG).show();
                 }
             } else if (position == callsRow) {
@@ -666,6 +678,11 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         useProxyRow = rowCount++;
         tryIpv6Row = rowCount++;
         dpiBypassRow = rowCount++;
+        if (dpiBypass) {
+            cloudflareFallbackRow = rowCount++;
+        } else {
+            cloudflareFallbackRow = -1;
+        }
         if (useProxySettings && SharedConfig.currentProxy != null && SharedConfig.proxyList.size() > 1 && IS_PROXY_ROTATION_AVAILABLE) {
             rotationRow = rowCount++;
             if (SharedConfig.proxyRotationEnabled) {
@@ -949,7 +966,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     } else if (position == tryIpv6Row) {
                         checkCell.setTextAndCheck(getString(R.string.TryConnectionThroughIPv6), forceTryIpV6, true);
                     } else if (position == dpiBypassRow) {
-                        checkCell.setTextAndCheck(getString(R.string.DpiBypass), dpiBypass, rotationRow != -1);
+                        checkCell.setTextAndCheck(getString(R.string.DpiBypass), dpiBypass, cloudflareFallbackRow != -1 || rotationRow != -1);
+                    } else if (position == cloudflareFallbackRow) {
+                        checkCell.setTextAndCheck(getString(R.string.CloudflareFallback), cloudflareFallback, rotationRow != -1);
                     } else if (position == callsRow) {
                         checkCell.setTextAndCheck(getString(R.string.UseProxyForCalls), useProxyForCalls, false);
                     } else if (position == rotationRow) {
@@ -1013,6 +1032,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     checkCell.setChecked(forceTryIpV6);
                 } else if (position == dpiBypassRow) {
                     checkCell.setChecked(dpiBypass);
+                } else if (position == cloudflareFallbackRow) {
+                    checkCell.setChecked(cloudflareFallback);
                 } else if (position == callsRow) {
                     checkCell.setChecked(useProxyForCalls);
                 } else if (position == rotationRow) {
@@ -1035,6 +1056,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     checkCell.setChecked(forceTryIpV6);
                 } else if (position == dpiBypassRow) {
                     checkCell.setChecked(dpiBypass);
+                } else if (position == cloudflareFallbackRow) {
+                    checkCell.setChecked(cloudflareFallback);
                 } else if (position == callsRow) {
                     checkCell.setChecked(useProxyForCalls);
                 } else if (position == rotationRow) {
@@ -1046,7 +1069,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == useProxyRow || position == tryIpv6Row || position == dpiBypassRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
+            return position == useProxyRow || position == tryIpv6Row || position == dpiBypassRow || position == cloudflareFallbackRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
         }
 
         @Override
@@ -1100,6 +1123,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return -12;
             } else if (position == dpiBypassRow) {
                 return -13;
+            } else if (position == cloudflareFallbackRow) {
+                return -14;
             } else if (position == callsRow) {
                 return -5;
             } else if (position == connectionsHeaderRow) {
@@ -1125,7 +1150,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SHADOW;
             } else if (position == proxyAddRow || position == deleteAllRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == useProxyRow || position == tryIpv6Row || position == dpiBypassRow || position == rotationRow || position == callsRow) {
+            } else if (position == useProxyRow || position == tryIpv6Row || position == dpiBypassRow || position == cloudflareFallbackRow || position == rotationRow || position == callsRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;

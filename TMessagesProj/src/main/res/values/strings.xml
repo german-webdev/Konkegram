@@ -2670,6 +2670,7 @@
     <string name="UseProxySettings">Use Proxy</string>
     <string name="TryConnectionThroughIPv6">Try connection through IPv6</string>
     <string name="DpiBypass">DPI Bypass</string>
+    <string name="CloudflareFallback">Cloudflare fallback</string>
     <string name="DpiBypassUnavailable">DPI Bypass could not start on this device</string>
     <string name="UseProxyAddress">Server</string>
     <string name="UseProxyPassword">Password</string>

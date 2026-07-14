@@ -18,6 +18,7 @@ import java.security.SecureRandom;
 /** Runs the in-process MTProto-to-WebSocket bridge used by DPI Bypass. */
 public final class TelegramWebSocketProxy {
     private static final String PREF_ENABLED = "dpiBypassEnabled";
+    private static final String PREF_CLOUDFLARE_FALLBACK = "dpiBypassCloudflareFallback";
     private static final String PREF_SECRET = "dpiBypassSecret";
     private static final String HOST = "127.0.0.1";
     private static final int FIRST_PORT = 1443;
@@ -27,6 +28,7 @@ public final class TelegramWebSocketProxy {
     private static final Object networkLock = new Object();
 
     private static volatile boolean enabled;
+    private static volatile boolean cloudflareFallback;
     private static boolean running;
     private static int port;
     private static String secret;
@@ -58,7 +60,15 @@ public final class TelegramWebSocketProxy {
     public static synchronized void initialize() {
         SharedPreferences preferences = preferences();
         secret = getOrCreateSecret(preferences);
-        enabled = preferences.getBoolean(PREF_ENABLED, false);
+        boolean defaultEnabled = !preferences.getBoolean("proxy_enabled", false);
+        enabled = preferences.getBoolean(PREF_ENABLED, defaultEnabled);
+        cloudflareFallback = preferences.getBoolean(PREF_CLOUDFLARE_FALLBACK, true);
+        if (!preferences.contains(PREF_ENABLED) || !preferences.contains(PREF_CLOUDFLARE_FALLBACK)) {
+            preferences.edit()
+                    .putBoolean(PREF_ENABLED, enabled)
+                    .putBoolean(PREF_CLOUDFLARE_FALLBACK, cloudflareFallback)
+                    .apply();
+        }
         if (enabled && !start()) {
             enabled = false;
             preferences.edit().putBoolean(PREF_ENABLED, false).apply();
@@ -91,6 +101,33 @@ public final class TelegramWebSocketProxy {
 
     public static synchronized boolean isEnabled() {
         return enabled;
+    }
+
+    public static synchronized boolean isCloudflareFallbackEnabled() {
+        return cloudflareFallback;
+    }
+
+    public static synchronized boolean setCloudflareFallbackEnabled(boolean value) {
+        if (value == cloudflareFallback) {
+            return true;
+        }
+        boolean previousValue = cloudflareFallback;
+        cloudflareFallback = value;
+        if (enabled) {
+            stop();
+            if (!start()) {
+                cloudflareFallback = previousValue;
+                if (!start()) {
+                    enabled = false;
+                    preferences().edit().putBoolean(PREF_ENABLED, false).apply();
+                }
+                ConnectionsManager.refreshProxySettings();
+                return false;
+            }
+            ConnectionsManager.refreshProxySettings();
+        }
+        preferences().edit().putBoolean(PREF_CLOUDFLARE_FALLBACK, value).apply();
+        return true;
     }
 
     static synchronized boolean isReady() {
@@ -159,6 +196,7 @@ public final class TelegramWebSocketProxy {
                     candidate,
                     cacheDir.getAbsolutePath(),
                     secret,
+                    cloudflareFallback,
                     BuildVars.LOGS_ENABLED
             );
             if (result == 0) {
