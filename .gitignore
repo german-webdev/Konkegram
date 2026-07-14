@@ -1,4 +1,7 @@
 .idea/
+.codex-tmp/
+.cargo-target/
+TMessagesProj/jni/third_party/tgwsproxy/target/
 .gradle/
 build/
 obj/

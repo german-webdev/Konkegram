@@ -31,6 +31,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
@@ -48,6 +49,7 @@ import org.telegram.messenger.ProxyRotationController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TelegramWebSocketProxy;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
@@ -87,11 +89,13 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private boolean useProxySettings;
     private boolean useProxyForCalls;
     private boolean forceTryIpV6;
+    private boolean dpiBypass;
 
     private int rowCount;
     @Keep
     private int useProxyRow;
     private int tryIpv6Row;
+    private int dpiBypassRow;
     private int useProxyShadowRow;
     private int connectionsHeaderRow;
     private int proxyStartRow;
@@ -347,6 +351,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         useProxySettings = preferences.getBoolean("proxy_enabled", false) && !SharedConfig.proxyList.isEmpty();
         useProxyForCalls = preferences.getBoolean("proxy_enabled_calls", false);
         forceTryIpV6 = ConnectionsManager.isForceTryIpV6UserEnabled();
+        dpiBypass = TelegramWebSocketProxy.isEnabled();
 
         updateRows(true);
 
@@ -417,6 +422,10 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     }
                 }
                 useProxySettings = !useProxySettings;
+                if (useProxySettings && dpiBypass) {
+                    TelegramWebSocketProxy.setEnabled(false);
+                    dpiBypass = false;
+                }
                 updateRows(true);
 
                 SharedPreferences preferences = MessagesController.getGlobalMainSettings();
@@ -460,6 +469,25 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 TextCheckCell textCheckCell = (TextCheckCell) view;
                 textCheckCell.setChecked(forceTryIpV6);
                 ConnectionsManager.setForceTryIpV6UserEnabled(forceTryIpV6);
+            } else if (position == dpiBypassRow) {
+                boolean enable = !dpiBypass;
+                if (enable && useProxySettings) {
+                    useProxySettings = false;
+                    useProxyForCalls = false;
+                    MessagesController.getGlobalMainSettings().edit()
+                            .putBoolean("proxy_enabled", false)
+                            .putBoolean("proxy_enabled_calls", false)
+                            .apply();
+                }
+                if (TelegramWebSocketProxy.setEnabled(enable)) {
+                    dpiBypass = enable;
+                    updateRows(true);
+                    ((TextCheckCell) view).setChecked(dpiBypass);
+                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
+                } else {
+                    ((TextCheckCell) view).setChecked(false);
+                    Toast.makeText(getParentActivity(), getString(R.string.DpiBypassUnavailable), Toast.LENGTH_LONG).show();
+                }
             } else if (position == callsRow) {
                 useProxyForCalls = !useProxyForCalls;
                 TextCheckCell textCheckCell = (TextCheckCell) view;
@@ -637,6 +665,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         rowCount = 0;
         useProxyRow = rowCount++;
         tryIpv6Row = rowCount++;
+        dpiBypassRow = rowCount++;
         if (useProxySettings && SharedConfig.currentProxy != null && SharedConfig.proxyList.size() > 1 && IS_PROXY_ROTATION_AVAILABLE) {
             rotationRow = rowCount++;
             if (SharedConfig.proxyRotationEnabled) {
@@ -918,7 +947,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     if (position == useProxyRow) {
                         checkCell.setTextAndCheck(getString(R.string.UseProxySettings), useProxySettings, true);
                     } else if (position == tryIpv6Row) {
-                        checkCell.setTextAndCheck(getString(R.string.TryConnectionThroughIPv6), forceTryIpV6, rotationRow != -1);
+                        checkCell.setTextAndCheck(getString(R.string.TryConnectionThroughIPv6), forceTryIpV6, true);
+                    } else if (position == dpiBypassRow) {
+                        checkCell.setTextAndCheck(getString(R.string.DpiBypass), dpiBypass, rotationRow != -1);
                     } else if (position == callsRow) {
                         checkCell.setTextAndCheck(getString(R.string.UseProxyForCalls), useProxyForCalls, false);
                     } else if (position == rotationRow) {
@@ -980,6 +1011,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     checkCell.setChecked(useProxySettings);
                 } else if (position == tryIpv6Row) {
                     checkCell.setChecked(forceTryIpV6);
+                } else if (position == dpiBypassRow) {
+                    checkCell.setChecked(dpiBypass);
                 } else if (position == callsRow) {
                     checkCell.setChecked(useProxyForCalls);
                 } else if (position == rotationRow) {
@@ -1000,6 +1033,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     checkCell.setChecked(useProxySettings);
                 } else if (position == tryIpv6Row) {
                     checkCell.setChecked(forceTryIpV6);
+                } else if (position == dpiBypassRow) {
+                    checkCell.setChecked(dpiBypass);
                 } else if (position == callsRow) {
                     checkCell.setChecked(useProxyForCalls);
                 } else if (position == rotationRow) {
@@ -1011,7 +1046,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         @Override
         public boolean isEnabled(RecyclerView.ViewHolder holder) {
             int position = holder.getAdapterPosition();
-            return position == useProxyRow || position == tryIpv6Row || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
+            return position == useProxyRow || position == tryIpv6Row || position == dpiBypassRow || position == rotationRow || position == callsRow || position == proxyAddRow || position == deleteAllRow || position >= proxyStartRow && position < proxyEndRow;
         }
 
         @Override
@@ -1063,6 +1098,8 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return -4;
             } else if (position == tryIpv6Row) {
                 return -12;
+            } else if (position == dpiBypassRow) {
+                return -13;
             } else if (position == callsRow) {
                 return -5;
             } else if (position == connectionsHeaderRow) {
@@ -1088,7 +1125,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 return VIEW_TYPE_SHADOW;
             } else if (position == proxyAddRow || position == deleteAllRow) {
                 return VIEW_TYPE_TEXT_SETTING;
-            } else if (position == useProxyRow || position == tryIpv6Row || position == rotationRow || position == callsRow) {
+            } else if (position == useProxyRow || position == tryIpv6Row || position == dpiBypassRow || position == rotationRow || position == callsRow) {
                 return VIEW_TYPE_TEXT_CHECK;
             } else if (position == connectionsHeaderRow) {
                 return VIEW_TYPE_HEADER;

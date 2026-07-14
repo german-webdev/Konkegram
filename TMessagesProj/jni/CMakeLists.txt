@@ -665,6 +665,7 @@ target_link_libraries(${NATIVE_LIB}
         GLESv2
         EGL
         android
+        dl
         OpenSLES
         cpufeatures
         breakpad)
