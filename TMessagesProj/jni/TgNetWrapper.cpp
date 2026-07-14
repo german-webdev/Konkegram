@@ -53,6 +53,8 @@ using TgWsSetCfProxyConfig = void (*)(int, int, const char *);
 using TgWsGetStats = char *(*)();
 using TgWsFreeString = void (*)(char *);
 
+constexpr const char *TG_WS_DIRECT_DC_IPS = "2:149.154.167.220,4:149.154.167.220";
+
 TgWsStartProxy tgWsStartProxy = nullptr;
 TgWsStopProxy tgWsStopProxy = nullptr;
 TgWsGetStats tgWsGetStats = nullptr;
@@ -74,7 +76,7 @@ bool loadTgWsProxy() {
 }
 }
 
-jint startWebSocketProxy(JNIEnv *env, jclass, jint port, jstring cacheDir, jstring secret, jboolean verbose) {
+jint startWebSocketProxy(JNIEnv *env, jclass, jint port, jstring cacheDir, jstring secret, jboolean cloudflareFallback, jboolean verbose) {
     if (!loadTgWsProxy()) {
         return -10;
     }
@@ -89,13 +91,13 @@ jint startWebSocketProxy(JNIEnv *env, jclass, jint port, jstring cacheDir, jstri
     const char *secretChars = env->GetStringUTFChars(secret, nullptr);
     setPoolSize(4);
     setCacheDir(cacheDirChars);
-    // Automatic mode mirrors the tested Android app: Cloudflare relay first,
-    // direct Telegram TCP only as a last-resort fallback.
-    setCfProxyConfig(1, 1, "");
+    // Official Telegram WSS is always preferred. Cloudflare is an optional
+    // fallback before the engine's final direct TCP attempt.
+    setCfProxyConfig(cloudflareFallback ? 1 : 0, 0, "");
     int result = tgWsStartProxy(
             "127.0.0.1",
             port,
-            "",
+            TG_WS_DIRECT_DC_IPS,
             secretChars,
             verbose ? 1 : 0
     );
@@ -616,7 +618,7 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_bindRequestToGuid", "(III)V", (void *) bindRequestToGuid},
         {"native_applyDatacenterAddress", "(IILjava/lang/String;I)V", (void *) applyDatacenterAddress},
         {"native_setProxySettings", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V", (void *) setProxySettings},
-        {"native_startWebSocketProxy", "(ILjava/lang/String;Ljava/lang/String;Z)I", (void *) startWebSocketProxy},
+        {"native_startWebSocketProxy", "(ILjava/lang/String;Ljava/lang/String;ZZ)I", (void *) startWebSocketProxy},
         {"native_stopWebSocketProxy", "()I", (void *) stopWebSocketProxy},
         {"native_getWebSocketProxyStats", "()Ljava/lang/String;", (void *) getWebSocketProxyStats},
         {"native_getConnectionState", "(I)I", (void *) getConnectionState},

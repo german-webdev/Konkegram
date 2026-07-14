@@ -88,7 +88,9 @@ pub unsafe extern "C" fn StartProxy(
         }
     }
 
-    cfproxy::init_cfproxy_domains();
+    if CFPROXY_ENABLED.load(Ordering::Relaxed) {
+        cfproxy::init_cfproxy_domains();
+    }
 
     let dc_opt_map: HashMap<i32, String> = parse_cidr_pool(&dc_ips_str);
 

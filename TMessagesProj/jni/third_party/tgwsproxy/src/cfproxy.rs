@@ -3,6 +3,7 @@ use crate::ws::{is_http_status_error, ws_connect_once, RawWebSocket, WsError};
 use crate::{ldebug, lerror, linfo, lwarn};
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 
@@ -299,6 +300,10 @@ pub fn init_cfproxy_domains() {
 }
 
 pub fn start_cfproxy_refresh() {
+    if !CFPROXY_ENABLED.load(Ordering::Relaxed) {
+        ldebug!(" CF: disabled, skipping domain refresh");
+        return;
+    }
     if !should_refresh_cfproxy_domains() {
         ldebug!(" CF: кеш свежий, пропускаю обновление списка");
         return;

@@ -7,20 +7,26 @@ Settings > DPI Bypass**.
 ## Data path
 
 ```text
-tgnet -> 127.0.0.1 MTProto proxy -> TLS WebSocket -> Cloudflare relay -> Telegram DC
+tgnet -> 127.0.0.1 MTProto proxy -> official Telegram TLS WebSocket -> Telegram DC
+                                      \-> optional Cloudflare fallback
 ```
 
 The local listener accepts Telegram's obfuscated MTProto transport, extracts
 the destination data-center identifier and forwards the encrypted MTProto
-stream through a WebSocket. The relay does not receive message plaintext, but
-it can observe connection metadata such as the client IP, timing and traffic
-volume.
+stream through a WebSocket. Official Telegram WebSocket endpoints are always
+tried first.
 
-Automatic mode uses the relay-domain list bundled with the TG WS Proxy
-component and may refresh that list from its upstream GitHub repository. TLS
-certificates are verified against the bundled Mozilla root store; Konkegram
-does not use the permissive certificate verifier from the upstream Android
-application.
+DPI Bypass and its Cloudflare fallback are enabled by default when no explicit
+user choice has been saved. The fallback has a separate switch below DPI
+Bypass. When enabled, it uses the relay-domain list bundled with the TG WS
+Proxy component and may refresh that list from its upstream GitHub repository.
+When disabled, Konkegram neither initializes nor refreshes community relay
+domains. A relay does not receive message plaintext, but it can observe
+connection metadata such as the client IP, timing and traffic volume.
+
+TLS certificates are verified against the bundled Mozilla root store;
+Konkegram does not use the permissive certificate verifier from the upstream
+Android application.
 
 The DPI Bypass and user-configured proxy routes are mutually exclusive because
 tgnet can use only one proxy transport for a connection. The IPv6 preference is
