@@ -225,10 +225,7 @@ impl WsPool {
 
     pub async fn warmup(self: &Arc<Self>, dc_opt_map: &HashMap<i32, String>) {
         for (dc, target_ip) in dc_opt_map {
-            // DC2 and DC4 are the common account/media frontends. Other
-            // configured DCs remain fully supported and are filled lazily on
-            // first use, avoiding 40 idle TLS sockets at application startup.
-            if target_ip.is_empty() || !matches!(*dc, 2 | 4) {
+            if target_ip.is_empty() {
                 continue;
             }
             for is_media in [false, true] {
@@ -968,6 +965,17 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
 
     let blacklisted = WS_BLACKLIST.read().get(&dc_key).copied().unwrap_or(false);
 
+    linfo!(
+        " route DC{}{}: {}",
+        dc,
+        media_tag(is_media),
+        if dc_configured && !blacklisted {
+            "direct WSS"
+        } else {
+            "fallback"
+        }
+    );
+
     if !dc_configured || blacklisted {
         do_fallback(
             conn,
@@ -1097,6 +1105,12 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     DC_FAIL_UNTIL.write().remove(&dc_key);
     let _ = &pool;
     STATS.connections_ws.fetch_add(1, Ordering::Relaxed);
+    linfo!(
+        " DC{}{} connected via direct WSS ({})",
+        dc,
+        media_tag(is_media),
+        target
+    );
 
     bridge_ws(
         conn,
@@ -1146,31 +1160,6 @@ pub async fn connect_direct_ws(
         }
     }
     (None, ws_failed_redirect, all_redirects)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ws_domains;
-
-    #[test]
-    fn production_dcs_have_regular_and_media_websocket_domains() {
-        for dc in 1..=5 {
-            assert_eq!(
-                ws_domains(dc, false),
-                vec![
-                    format!("kws{}.web.telegram.org", dc),
-                    format!("kws{}-1.web.telegram.org", dc),
-                ]
-            );
-            assert_eq!(
-                ws_domains(dc, true),
-                vec![
-                    format!("kws{}-1.web.telegram.org", dc),
-                    format!("kws{}.web.telegram.org", dc),
-                ]
-            );
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

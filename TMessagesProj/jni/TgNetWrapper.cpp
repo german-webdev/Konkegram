@@ -53,15 +53,10 @@ using TgWsSetCfProxyConfig = void (*)(int, int, const char *);
 using TgWsGetStats = char *(*)();
 using TgWsFreeString = void (*)(char *);
 
-// Official Telegram WebSocket frontends for every production DC. A positive
-// entry is shared by regular and media connections; the Rust bridge selects
-// kwsN or kwsN-1 as TLS SNI according to the MTProto media flag.
-constexpr const char *TG_WS_DIRECT_DC_IPS =
-        "1:149.154.174.100,"
-        "2:149.154.167.99,"
-        "3:149.154.174.100,"
-        "4:149.154.167.99,"
-        "5:149.154.170.100";
+// These are the proven direct WSS transport targets. Other DCs must use the
+// fallback path until their complete MTProto exchange is verified on-device;
+// a successful TLS/WebSocket handshake alone is not sufficient.
+constexpr const char *TG_WS_DIRECT_DC_IPS = "2:149.154.167.220,4:149.154.167.220";
 
 TgWsStartProxy tgWsStartProxy = nullptr;
 TgWsStopProxy tgWsStopProxy = nullptr;
