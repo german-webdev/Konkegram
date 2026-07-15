@@ -53,13 +53,15 @@ using TgWsSetCfProxyConfig = void (*)(int, int, const char *);
 using TgWsGetStats = char *(*)();
 using TgWsFreeString = void (*)(char *);
 
-// These are the proven direct WSS transport targets. Other DCs must use the
-// fallback path until their complete MTProto exchange is verified on-device;
-// a successful TLS/WebSocket handshake alone is not sufficient.
+// The reachable Telegram WSS frontend accepts the official KWS hostname for
+// every DC. Keep a single transport IP so blocked per-DC frontend addresses
+// do not force otherwise valid connections into the fallback path.
 constexpr const char *TG_WS_DIRECT_DC_IPS =
         "1:149.154.167.220,"
         "2:149.154.167.220,"
-        "4:149.154.167.220";
+        "3:149.154.167.220,"
+        "4:149.154.167.220,"
+        "5:149.154.167.220";
 
 TgWsStartProxy tgWsStartProxy = nullptr;
 TgWsStopProxy tgWsStopProxy = nullptr;
