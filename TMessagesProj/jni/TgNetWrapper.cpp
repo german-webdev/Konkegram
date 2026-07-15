@@ -56,7 +56,10 @@ using TgWsFreeString = void (*)(char *);
 // These are the proven direct WSS transport targets. Other DCs must use the
 // fallback path until their complete MTProto exchange is verified on-device;
 // a successful TLS/WebSocket handshake alone is not sufficient.
-constexpr const char *TG_WS_DIRECT_DC_IPS = "2:149.154.167.220,4:149.154.167.220";
+constexpr const char *TG_WS_DIRECT_DC_IPS =
+        "1:149.154.167.220,"
+        "2:149.154.167.220,"
+        "4:149.154.167.220";
 
 TgWsStartProxy tgWsStartProxy = nullptr;
 TgWsStopProxy tgWsStopProxy = nullptr;
