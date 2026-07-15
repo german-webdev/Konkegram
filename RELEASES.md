@@ -8,9 +8,9 @@ and does not determine the public Konkegram version.
 
 | Download | Device support | Android version |
 | --- | --- | --- |
-| `konkegram-v1.0.0-release-universal.apk` | ARM64, ARMv7, x86 and x86_64 | Android 5.0 or newer |
-| `konkegram-v1.0.0-release-arm64-v8a.apk` | Most modern 64-bit ARM phones and tablets | Android 5.0 or newer |
-| `konkegram-v1.0.0-release-armeabi-v7a.apk` | Older 32-bit ARM devices | Android 5.0 or newer |
+| `konkegram-v1.0.1-release-universal.apk` | ARM64, ARMv7, x86 and x86_64 | Android 5.0 or newer |
+| `konkegram-v1.0.1-release-arm64-v8a.apk` | Most modern 64-bit ARM phones and tablets | Android 5.0 or newer |
+| `konkegram-v1.0.1-release-armeabi-v7a.apk` | Older 32-bit ARM devices | Android 5.0 or newer |
 
 The universal APK is recommended when the device architecture is unknown. The
 architecture-specific APKs contain the same features and can reduce download
