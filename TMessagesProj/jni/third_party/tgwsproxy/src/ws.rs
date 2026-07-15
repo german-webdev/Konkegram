@@ -4,8 +4,13 @@ use crate::{ldebug};
 use base64::Engine;
 use byteorder::{BigEndian, ByteOrder};
 use rand::RngCore;
-use rustls::{ClientConfig, RootCertStore};
-use rustls_pki_types::ServerName;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
+use rustls::{
+    CertificateError, ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore,
+    SignatureScheme,
+};
+use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,10 +38,87 @@ pub const OP_PONG: u8 = 0xA;
 use once_cell::sync::Lazy;
 
 // Глобальный TLS-конфиг с session resumption cache (аналог tls.NewLRUClientSessionCache(100))
+// Filtered routes may return Telegram's *.telegram.org certificate for KWS
+// SNI. Accept that official identity without relaxing CA or signature checks.
+#[derive(Debug)]
+struct TelegramServerCertVerifier {
+    inner: Arc<WebPkiServerVerifier>,
+}
+
+impl ServerCertVerifier for TelegramServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        match self.inner.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(verified) => Ok(verified),
+            Err(error)
+                if server_name.to_str().ends_with(".web.telegram.org")
+                    && matches!(
+                        error,
+                        TlsError::InvalidCertificate(CertificateError::NotValidForName)
+                            | TlsError::InvalidCertificate(
+                                CertificateError::NotValidForNameContext { .. }
+                            )
+                    ) =>
+            {
+                let telegram_name = ServerName::try_from("web.telegram.org")
+                    .expect("static Telegram certificate name is valid");
+                self.inner.verify_server_cert(
+                    end_entity,
+                    intermediates,
+                    &telegram_name,
+                    ocsp_response,
+                    now,
+                )
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
 static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| {
-    let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let roots = Arc::new(RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    ));
+    let verifier = WebPkiServerVerifier::builder(roots)
+        .build()
+        .expect("webpki root store is not empty");
     let mut cfg = ClientConfig::builder()
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(TelegramServerCertVerifier { inner: verifier }))
         .with_no_client_auth();
     cfg.resumption = rustls::client::Resumption::in_memory_sessions(100);
     Arc::new(cfg)
