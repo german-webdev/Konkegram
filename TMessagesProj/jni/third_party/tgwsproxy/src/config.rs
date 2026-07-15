@@ -12,10 +12,7 @@ pub const DEFAULT_PORT: u16 = 1443;
 pub const TCP_NODELAY: bool = true;
 pub const DEFAULT_RECV_BUF: usize = 256 * 1024;
 pub const DEFAULT_SEND_BUF: usize = 256 * 1024;
-pub const DEFAULT_POOL_SZ: i32 = 4;
-
 pub const DC_FAIL_COOLDOWN: f64 = 30.0;
-pub const WS_FAIL_TIMEOUT: f64 = 2.0;
 
 pub const BRIDGE_READ_TIMEOUT: Duration = Duration::from_secs(120);
 pub const BRIDGE_PING_INTERVAL: Duration = Duration::from_secs(30);
@@ -24,21 +21,17 @@ pub const WS_CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
 pub const WS_BRIDGE_CHUNK_SIZE: usize = 64 * 1024;
 pub const POOLED_FRAME_CAP: usize = WS_BRIDGE_CHUNK_SIZE + 32;
 
-pub const WS_POOL_REUSE_MAX_AGE: f64 = 120.0;
-pub const WS_POOL_CONNECT_TIMEOUT: f64 = 8.0;
-
 pub const CFPROXY_CACHE_FILE_NAME: &str = "cfproxy-domains-cache.txt";
 pub const CFPROXY_ACTIVE_FILE_NAME: &str = "cfproxy-active-domain.txt";
 pub const CFPROXY_REFRESH_INTERVAL: Duration = Duration::from_secs(12 * 3600);
 pub const CFPROXY_DIAL_PHASE_TIMEOUT: Duration = Duration::from_secs(4);
-pub const CFPROXY_FALLBACK_PARALLEL: usize = 2;
-pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(45);
-pub const CFPROXY_429_MAX_COOLDOWN: Duration = Duration::from_secs(300);
-pub const CFPROXY_GLOBAL_PARALLEL: usize = 4;
+pub const CFPROXY_MAX_DOMAINS_PER_CONNECTION: usize = 3;
+pub const CFPROXY_429_COOLDOWN: Duration = Duration::from_secs(60);
+pub const CFPROXY_429_MAX_COOLDOWN: Duration = Duration::from_secs(3600);
+pub const CFPROXY_GLOBAL_PARALLEL: usize = 2;
 
 pub static RECV_BUF: AtomicI32 = AtomicI32::new(DEFAULT_RECV_BUF as i32);
 pub static SEND_BUF: AtomicI32 = AtomicI32::new(DEFAULT_SEND_BUF as i32);
-pub static POOL_SIZE: AtomicI32 = AtomicI32::new(DEFAULT_POOL_SZ);
 pub static LOG_VERBOSE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
@@ -125,8 +118,6 @@ pub static DC_OVERRIDES: Lazy<HashMap<i32, i32>> = Lazy::new(|| {
 
 // Global state
 pub static DC_OPT: Lazy<RwLock<HashMap<i32, String>>> = Lazy::new(|| RwLock::new(HashMap::new()));
-pub static WS_BLACKLIST: Lazy<RwLock<HashMap<(i32, i32), bool>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 pub static DC_FAIL_UNTIL: Lazy<RwLock<HashMap<(i32, i32), f64>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
@@ -149,18 +140,14 @@ pub struct Stats {
     pub ws_errors: AtomicI64,
     pub bytes_up: AtomicI64,
     pub bytes_down: AtomicI64,
-    pub pool_hits: AtomicI64,
-    pub pool_misses: AtomicI64,
 }
 
 pub static STATS: Lazy<Stats> = Lazy::new(Stats::default);
 
 impl Stats {
     pub fn summary(&self) -> String {
-        let ph = self.pool_hits.load(Ordering::Relaxed);
-        let pm = self.pool_misses.load(Ordering::Relaxed);
         format!(
-            "total={} active={} ws={} tcp_fb={} cf={} bad={} err={} pool={}/{} up={} down={}",
+            "total={} active={} ws={} tcp_fb={} cf={} bad={} err={} up={} down={}",
             self.connections_total.load(Ordering::Relaxed),
             self.connections_active.load(Ordering::Relaxed),
             self.connections_ws.load(Ordering::Relaxed),
@@ -168,8 +155,6 @@ impl Stats {
             self.connections_cfproxy.load(Ordering::Relaxed),
             self.connections_bad.load(Ordering::Relaxed),
             self.ws_errors.load(Ordering::Relaxed),
-            ph,
-            ph + pm,
             human_bytes(self.bytes_up.load(Ordering::Relaxed)),
             human_bytes(self.bytes_down.load(Ordering::Relaxed)),
         )
@@ -213,8 +198,6 @@ impl Stats {
         self.ws_errors.store(0, Ordering::Relaxed);
         self.bytes_up.store(0, Ordering::Relaxed);
         self.bytes_down.store(0, Ordering::Relaxed);
-        self.pool_hits.store(0, Ordering::Relaxed);
-        self.pool_misses.store(0, Ordering::Relaxed);
     }
 }
 

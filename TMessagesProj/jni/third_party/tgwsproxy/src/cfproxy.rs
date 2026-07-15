@@ -1,10 +1,11 @@
 use crate::config::*;
 use crate::ws::{is_http_status_error, ws_connect_once, RawWebSocket, WsError};
 use crate::{ldebug, lerror, linfo, lwarn};
+use rand::Rng;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 
 use once_cell::sync::Lazy;
@@ -116,21 +117,82 @@ pub fn retry_after_delay(err: &WsError) -> Duration {
             return Duration::from_secs(seconds as u64);
         }
     }
-    // http date parse (best-effort): пропускаем, как маловероятный кейс
+    if let Some(retry_at) = parse_http_date(retry_after) {
+        if let Ok(delay) = retry_at.duration_since(SystemTime::now()) {
+            return delay;
+        }
+    }
     Duration::ZERO
+}
+
+fn parse_http_date(value: &str) -> Option<SystemTime> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 6 || !parts[0].ends_with(',') || parts[5] != "GMT" {
+        return None;
+    }
+    let day = parts[1].parse::<u32>().ok()?;
+    let month = match parts[2] {
+        "Jan" => 1,
+        "Feb" => 2,
+        "Mar" => 3,
+        "Apr" => 4,
+        "May" => 5,
+        "Jun" => 6,
+        "Jul" => 7,
+        "Aug" => 8,
+        "Sep" => 9,
+        "Oct" => 10,
+        "Nov" => 11,
+        "Dec" => 12,
+        _ => return None,
+    };
+    let year = parts[3].parse::<i32>().ok()?;
+    let time: Vec<&str> = parts[4].split(':').collect();
+    if time.len() != 3 {
+        return None;
+    }
+    let hour = time[0].parse::<u32>().ok()?;
+    let minute = time[1].parse::<u32>().ok()?;
+    let second = time[2].parse::<u32>().ok()?;
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        2 if leap_year => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if day == 0 || day > max_day || hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+
+    let mut adjusted_year = year;
+    if month <= 2 {
+        adjusted_year -= 1;
+    }
+    let era = adjusted_year.div_euclid(400);
+    let year_of_era = adjusted_year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * shifted_month + 2) / 5 + day as i32 - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days_since_epoch = era as i64 * 146097 + day_of_era as i64 - 719468;
+    if days_since_epoch < 0 {
+        return None;
+    }
+    let seconds = days_since_epoch as u64 * 86400
+        + hour as u64 * 3600
+        + minute as u64 * 60
+        + second as u64;
+    Some(UNIX_EPOCH + Duration::from_secs(seconds))
 }
 
 pub fn next_cfproxy_429_cooldown_delay(prev: &Cfproxy429State, retry_after: Duration) -> Duration {
     if retry_after > Duration::ZERO {
-        if retry_after > CFPROXY_429_MAX_COOLDOWN {
-            return CFPROXY_429_MAX_COOLDOWN;
-        }
         return retry_after;
     }
     let mut strikes = prev.strikes;
     let expired = match prev.until {
         None => true,
-        Some(u) => u.elapsed() > CFPROXY_429_MAX_COOLDOWN,
+        Some(u) => Instant::now().saturating_duration_since(u) > CFPROXY_429_MAX_COOLDOWN,
     };
     if expired {
         strikes = 0;
@@ -156,11 +218,16 @@ pub fn mark_cfproxy_429_cooldown(domain: &str, err: &WsError) {
     let retry_after = retry_after_delay(err);
     let mut map = CFPROXY_429.write();
     let prev = map.get(&d).cloned().unwrap_or_default();
-    let delay = next_cfproxy_429_cooldown_delay(&prev, retry_after);
+    let mut delay = next_cfproxy_429_cooldown_delay(&prev, retry_after);
+    if retry_after == Duration::ZERO {
+        let jitter_limit = (delay.as_secs() / 4).max(1);
+        delay = (delay + Duration::from_secs(rand::thread_rng().gen_range(0..=jitter_limit)))
+            .min(CFPROXY_429_MAX_COOLDOWN);
+    }
     let mut strikes = prev.strikes + 1;
     let expired = match prev.until {
         None => true,
-        Some(u) => u.elapsed() > CFPROXY_429_MAX_COOLDOWN,
+        Some(u) => Instant::now().saturating_duration_since(u) > CFPROXY_429_MAX_COOLDOWN,
     };
     if expired {
         strikes = 1;
@@ -193,7 +260,6 @@ pub fn cfproxy_429_cooldown_remaining(domain: &str) -> Duration {
     };
     let now = Instant::now();
     if until <= now {
-        CFPROXY_429.write().remove(&d);
         return Duration::ZERO;
     }
     until - now
@@ -601,4 +667,30 @@ pub fn log_cf_conn_error(msg: &str, err: &WsError) {
 // активный домен set/save
 pub fn set_active_domain_and_save(_chosen: &str) {
     // Больше не используется для файлов. Балансер обновляется внутри proxy.rs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{next_cfproxy_429_cooldown_delay, parse_http_date};
+    use crate::config::{Cfproxy429State, CFPROXY_429_MAX_COOLDOWN};
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn parses_standard_retry_after_http_date() {
+        let parsed = parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT").unwrap();
+        assert_eq!(
+            parsed.duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            1_445_412_480
+        );
+        assert!(parse_http_date("Wed, 31 Feb 2026 07:28:00 GMT").is_none());
+    }
+
+    #[test]
+    fn does_not_cap_server_retry_after() {
+        let requested = CFPROXY_429_MAX_COOLDOWN + Duration::from_secs(600);
+        assert_eq!(
+            next_cfproxy_429_cooldown_delay(&Cfproxy429State::default(), requested),
+            requested
+        );
+    }
 }

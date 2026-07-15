@@ -38,11 +38,25 @@ pub const OP_PONG: u8 = 0xA;
 use once_cell::sync::Lazy;
 
 // Глобальный TLS-конфиг с session resumption cache (аналог tls.NewLRUClientSessionCache(100))
-// Filtered routes may return Telegram's *.telegram.org certificate for KWS
-// SNI. Accept that official identity without relaxing CA or signature checks.
 #[derive(Debug)]
 struct TelegramServerCertVerifier {
     inner: Arc<WebPkiServerVerifier>,
+}
+
+fn is_official_telegram_wss_name(server_name: &ServerName<'_>) -> bool {
+    matches!(
+        server_name.to_str().as_ref(),
+        "pluto.web.telegram.org"
+            | "pluto-1.web.telegram.org"
+            | "venus.web.telegram.org"
+            | "venus-1.web.telegram.org"
+            | "aurora.web.telegram.org"
+            | "aurora-1.web.telegram.org"
+            | "vesta.web.telegram.org"
+            | "vesta-1.web.telegram.org"
+            | "flora.web.telegram.org"
+            | "flora-1.web.telegram.org"
+    )
 }
 
 impl ServerCertVerifier for TelegramServerCertVerifier {
@@ -63,7 +77,7 @@ impl ServerCertVerifier for TelegramServerCertVerifier {
         ) {
             Ok(verified) => Ok(verified),
             Err(error)
-                if server_name.to_str().ends_with(".web.telegram.org")
+                if is_official_telegram_wss_name(server_name)
                     && matches!(
                         error,
                         TlsError::InvalidCertificate(CertificateError::NotValidForName)
@@ -156,6 +170,9 @@ impl WsError {
         match self {
             WsError::Canceled => "canceled".to_string(),
             WsError::Timeout => "timeout".to_string(),
+            WsError::Handshake(h) if !h.location.is_empty() => {
+                format!("http {} -> {}", h.status_code, h.location)
+            }
             WsError::Handshake(h) => format!("http {}", h.status_code),
             WsError::Io(e) => {
                 if e.kind() == std::io::ErrorKind::TimedOut
@@ -736,12 +753,32 @@ pub async fn ws_connect(
     }
 }
 
-// connectOneWS: перебор доменов
-pub async fn connect_one_ws(ip: &str, domains: &[String]) -> Option<RawWebSocket> {
-    for d in domains {
-        if let Ok(ws) = ws_connect(ip, d, "/apiws", WS_POOL_CONNECT_TIMEOUT).await {
-            return Some(ws);
+#[cfg(test)]
+mod tests {
+    use super::is_official_telegram_wss_name;
+    use rustls_pki_types::ServerName;
+
+    #[test]
+    fn certificate_alias_is_limited_to_official_telegram_wss_names() {
+        for domain in [
+            "pluto.web.telegram.org",
+            "venus-1.web.telegram.org",
+            "aurora.web.telegram.org",
+            "vesta-1.web.telegram.org",
+            "flora.web.telegram.org",
+        ] {
+            let name = ServerName::try_from(domain).unwrap();
+            assert!(is_official_telegram_wss_name(&name));
+        }
+
+        for domain in [
+            "web.telegram.org",
+            "kws2.web.telegram.org",
+            "example.web.telegram.org",
+            "kws2.community-relay.example",
+        ] {
+            let name = ServerName::try_from(domain).unwrap();
+            assert!(!is_official_telegram_wss_name(&name));
         }
     }
-    None
 }

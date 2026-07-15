@@ -8,12 +8,11 @@ pub mod balancer;
 use config::*;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
-use proxy::{parse_cidr_pool, run_proxy, WsPool};
+use proxy::{parse_cidr_pool, run_proxy};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 
@@ -21,7 +20,6 @@ use tokio_util::sync::CancellationToken;
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
 struct ProxyState {
-    pool: Arc<WsPool>,
     handle: tokio::task::JoinHandle<()>,
     cancel_tasks: CancellationToken,
 }
@@ -96,12 +94,9 @@ pub unsafe extern "C" fn StartProxy(
 
     let rt = runtime();
     let cancel_tasks = CancellationToken::new();
-    let pool = Arc::new(WsPool::new(cancel_tasks.clone()));
-
     // Канал готовности: ждём успешного bind перед возвратом
     let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
-    let pool_task = pool.clone();
     let host_task = host.clone();
     let map_task = dc_opt_map.clone();
     let cancel_root = cancel_tasks.clone();
@@ -113,7 +108,7 @@ pub unsafe extern "C" fn StartProxy(
             Ok(listener) => {
                 let _ = tx.send(Ok(()));
                 if let Err(e) =
-                    run_proxy(pool_task, host_task, go_port, map_task, cancel_root, listener).await
+                    run_proxy(host_task, go_port, map_task, cancel_root, listener).await
                 {
                     lerror!("listen on {}: {}", addr, e);
                 }
@@ -138,7 +133,6 @@ pub unsafe extern "C" fn StartProxy(
     }
 
     *guard = Some(ProxyState {
-        pool,
         handle,
         cancel_tasks,
     });
@@ -161,18 +155,14 @@ pub extern "C" fn StopProxy() -> c_int {
     state.cancel_tasks.cancel();
 
     let rt = runtime();
-    let pool = state.pool.clone();
     let handle = state.handle;
     rt.block_on(async move {
         linfo!("StopProxy: waiting for proxy tasks to finish (max 2s)");
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
-        linfo!("StopProxy: closing pool connections");
-        pool.close_all().await;
         linfo!("StopProxy: done");
     });
 
     STATS.reset();
-    WS_BLACKLIST.write().clear();
     DC_FAIL_UNTIL.write().clear();
     cfproxy::clear_cfproxy_429_cooldowns();
 
@@ -181,15 +171,8 @@ pub extern "C" fn StopProxy() -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn SetPoolSize(size: c_int) {
-    let mut n = size;
-    if n < 2 {
-        n = 2;
-    }
-    if n > 16 {
-        n = 16;
-    }
-    POOL_SIZE.store(n, Ordering::Relaxed);
+pub extern "C" fn SetPoolSize(_size: c_int) {
+    // Retained for ABI compatibility with older app builds. Connections are lazy now.
 }
 
 /// # Safety
