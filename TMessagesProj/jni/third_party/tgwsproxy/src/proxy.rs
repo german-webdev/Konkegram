@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -44,20 +44,20 @@ pub fn resolve_fallback_target(dc: i32, _is_media: bool) -> String {
 }
 
 pub fn ws_domains(dc: i32, is_media: bool) -> Vec<String> {
-    let mut effective_dc = dc;
-    if let Some(o) = DC_OVERRIDES.get(&dc) {
-        effective_dc = *o;
-    }
+    let effective_dc = DC_OVERRIDES.get(&dc).copied().unwrap_or(dc);
+    let base = match effective_dc {
+        1 => "pluto.web.telegram.org",
+        2 => "venus.web.telegram.org",
+        3 => "aurora.web.telegram.org",
+        4 => "vesta.web.telegram.org",
+        5 => "flora.web.telegram.org",
+        _ => return Vec::new(),
+    };
+    let alternate = base.replacen(".web.telegram.org", "-1.web.telegram.org", 1);
     if is_media {
-        vec![
-            format!("kws{}-1.web.telegram.org", effective_dc),
-            format!("kws{}.web.telegram.org", effective_dc),
-        ]
+        vec![alternate, base.to_string()]
     } else {
-        vec![
-            format!("kws{}.web.telegram.org", effective_dc),
-            format!("kws{}-1.web.telegram.org", effective_dc),
-        ]
+        vec![base.to_string(), alternate]
     }
 }
 
@@ -75,213 +75,6 @@ pub fn is_media_int(b: bool) -> i32 {
     } else {
         0
     }
-}
-
-// ---------------------------------------------------------------------------
-// WsPool
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DcSlot {
-    pub dc: i32,
-    pub is_media: i32,
-}
-
-pub struct PoolEntry {
-    pub ws: RawWebSocket,
-    pub created: i64,
-}
-
-struct SlotState {
-    queue: Mutex<std::collections::VecDeque<PoolEntry>>,
-    refilling: AtomicI32,
-}
-
-pub struct WsPool {
-    slots: Mutex<HashMap<DcSlot, Arc<SlotState>>>,
-    cancel_token: CancellationToken,
-}
-
-impl WsPool {
-    pub fn new(cancel_token: CancellationToken) -> WsPool {
-        WsPool {
-            slots: Mutex::new(HashMap::new()),
-            cancel_token,
-        }
-    }
-
-    async fn get_slot(&self, slot: DcSlot) -> Arc<SlotState> {
-        let mut map = self.slots.lock().await;
-        map.entry(slot)
-            .or_insert_with(|| {
-                Arc::new(SlotState {
-                    queue: Mutex::new(std::collections::VecDeque::with_capacity(16)),
-                    refilling: AtomicI32::new(0),
-                })
-            })
-            .clone()
-    }
-
-    pub async fn get(
-        self: &Arc<Self>,
-        dc: i32,
-        is_media: bool,
-        target_ip: String,
-        domains: Vec<String>,
-    ) -> Option<RawWebSocket> {
-        let slot = DcSlot {
-            dc,
-            is_media: is_media_int(is_media),
-        };
-        let state = self.get_slot(slot).await;
-        let now = now_unix();
-
-        let mut ws: Option<RawWebSocket> = None;
-        {
-            let mut q = state.queue.lock().await;
-            loop {
-                match q.pop_front() {
-                    Some(entry) => {
-                        if is_pool_entry_usable(&entry, now) {
-                            ws = Some(entry.ws);
-                            STATS.pool_hits.fetch_add(1, Ordering::Relaxed);
-                            break;
-                        } else {
-                            let e = entry;
-                            tokio::spawn(async move {
-                                e.ws.close().await;
-                            });
-                            continue;
-                        }
-                    }
-                    None => {
-                        STATS.pool_misses.fetch_add(1, Ordering::Relaxed);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if state
-            .refilling
-            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            let pool = self.clone();
-            let st = state.clone();
-            tokio::spawn(async move {
-                pool.refill(st, target_ip, domains).await;
-            });
-        }
-
-        ws
-    }
-
-    async fn refill(
-        self: Arc<Self>,
-        state: Arc<SlotState>,
-        target_ip: String,
-        domains: Vec<String>,
-    ) {
-        let cur_len = state.queue.lock().await.len();
-        let needed = POOL_SIZE.load(Ordering::Relaxed) as usize;
-        let needed = needed.saturating_sub(cur_len);
-        if needed == 0 {
-            state.refilling.store(0, Ordering::SeqCst);
-            return;
-        }
-
-        let mut handles = Vec::new();
-        for _ in 0..needed {
-            let target_ip = target_ip.clone();
-            let domains = domains.clone();
-            let cancel = self.cancel_token.clone();
-            handles.push(tokio::spawn(async move {
-                tokio::select! {
-                    _ = cancel.cancelled() => None,
-                    r = connect_one_ws(&target_ip, &domains) => r,
-                }
-            }));
-        }
-
-        for h in handles {
-            if let Ok(Some(ws)) = h.await {
-                let now = now_unix();
-                let mut q = state.queue.lock().await;
-                if q.len() < 16 {
-                    q.push_back(PoolEntry { ws, created: now });
-                } else {
-                    drop(q);
-                    let ws = ws;
-                    tokio::spawn(async move {
-                        ws.close().await;
-                    });
-                }
-            }
-        }
-
-        state.refilling.store(0, Ordering::SeqCst);
-    }
-
-    pub async fn warmup(self: &Arc<Self>, dc_opt_map: &HashMap<i32, String>) {
-        for (dc, target_ip) in dc_opt_map {
-            if target_ip.is_empty() {
-                continue;
-            }
-            for is_media in [false, true] {
-                let domains = ws_domains(*dc, is_media);
-                let slot = DcSlot {
-                    dc: *dc,
-                    is_media: is_media_int(is_media),
-                };
-                let state = self.get_slot(slot).await;
-                if state
-                    .refilling
-                    .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-                {
-                    let pool = self.clone();
-                    let st = state.clone();
-                    let ip = target_ip.clone();
-                    let doms = domains.clone();
-                    tokio::spawn(async move {
-                        pool.refill(st, ip, doms).await;
-                    });
-                }
-            }
-        }
-    }
-
-    pub async fn idle_count(&self) -> usize {
-        let map = self.slots.lock().await;
-        let mut count = 0;
-        for s in map.values() {
-            count += s.queue.lock().await.len();
-        }
-        count
-    }
-
-    pub async fn close_all(&self) {
-        let map = self.slots.lock().await;
-        for s in map.values() {
-            let mut q = s.queue.lock().await;
-            for e in q.drain(..) {
-                tokio::spawn(async move {
-                    e.ws.close().await;
-                });
-            }
-        }
-    }
-}
-
-fn is_pool_entry_usable(e: &PoolEntry, now: i64) -> bool {
-    if e.ws.is_closed() {
-        return false;
-    }
-    if now - e.created > WS_POOL_REUSE_MAX_AGE as i64 {
-        return false;
-    }
-    true
 }
 
 // ---------------------------------------------------------------------------
@@ -668,41 +461,19 @@ async fn cfproxy_acquire_ws(
     let mut ws: Option<RawWebSocket> = None;
     let mut chosen_domain = String::new();
 
-    if !ordered.is_empty() && !ordered[0].is_empty() {
-        let (w, d) = try_cfproxy_base_domain(dc, &ordered[0]).await;
-        ws = w;
-        chosen_domain = d;
-    }
-
-    if ws.is_none() && ordered.len() > 1 {
-        let remaining_domains: Vec<String> = ordered[1..].to_vec();
-        let sem = Arc::new(tokio::sync::Semaphore::new(CFPROXY_FALLBACK_PARALLEL));
-        let mut handles = Vec::new();
-        for bd in remaining_domains {
-            let sem = sem.clone();
-            let cancel = cancel_token.clone();
-            handles.push(tokio::spawn(async move {
-                tokio::select! {
-                    _ = cancel.cancelled() => None,
-                    r = async {
-                        let _p = sem.acquire().await.ok()?;
-                        let (w, d) = try_cfproxy_base_domain(dc, &bd).await;
-                        w.map(|ws| (ws, d))
-                    } => r,
-                }
-            }));
-        }
-        for h in handles {
-            if let Ok(Some((w, d))) = h.await {
-                if ws.is_none() {
-                    ws = Some(w);
-                    chosen_domain = d;
-                } else {
-                    tokio::spawn(async move {
-                        w.close().await;
-                    });
-                }
-            }
+    for base_domain in ordered
+        .iter()
+        .filter(|domain| !domain.is_empty())
+        .take(CFPROXY_MAX_DOMAINS_PER_CONNECTION)
+    {
+        let (candidate, domain) = tokio::select! {
+            _ = cancel_token.cancelled() => return None,
+            result = try_cfproxy_base_domain(dc, base_domain) => result,
+        };
+        if candidate.is_some() {
+            ws = candidate;
+            chosen_domain = domain;
+            break;
         }
     }
 
@@ -738,6 +509,7 @@ pub async fn do_fallback(
     clt_enc: &TrackedStream,
     tg_enc: &TrackedStream,
     tg_dec: &TrackedStream,
+    allow_cfproxy: bool,
     cancel_token: CancellationToken,
 ) -> bool {
     // Clone streams (как Go Clone())
@@ -747,7 +519,7 @@ pub async fn do_fallback(
     let tg_dec = tg_dec.clone_state();
 
     let fallback_dst = resolve_fallback_target(dc, is_media);
-    let use_cf = CFPROXY_ENABLED.load(Ordering::Relaxed);
+    let use_cf = allow_cfproxy && CFPROXY_ENABLED.load(Ordering::Relaxed);
 
     if use_cf {
         // Сначала добываем WS через CF, conn не трогаем.
@@ -826,7 +598,7 @@ pub async fn do_fallback(
 // Client handler (dd-only)
 // ---------------------------------------------------------------------------
 
-pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token: CancellationToken) {
+pub async fn handle_client(mut conn: TcpStream, cancel_token: CancellationToken) {
     STATS.connections_total.fetch_add(1, Ordering::Relaxed);
     STATS.connections_active.fetch_add(1, Ordering::Relaxed);
     struct ActiveGuard;
@@ -963,9 +735,18 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     let dc_configured = target_opt.is_some();
     let target = target_opt.unwrap_or_default();
 
-    let blacklisted = WS_BLACKLIST.read().get(&dc_key).copied().unwrap_or(false);
+    linfo!(
+        " route DC{}{}: {}",
+        dc,
+        media_tag(is_media),
+        if dc_configured {
+            "direct WSS"
+        } else {
+            "fallback"
+        }
+    );
 
-    if !dc_configured || blacklisted {
+    if !dc_configured {
         do_fallback(
             conn,
             &relay_init,
@@ -977,6 +758,7 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
             &clt_encryptor,
             &tg_encryptor,
             &tg_decryptor,
+            true,
             cancel_token,
         )
         .await;
@@ -984,28 +766,51 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     }
 
     let fail_until = DC_FAIL_UNTIL.read().get(&dc_key).copied().unwrap_or(0.0);
-    let ws_timeout = if now < fail_until {
-        WS_FAIL_TIMEOUT
-    } else {
-        10.0
-    };
+    if now < fail_until {
+        ldebug!(
+            " direct WSS cooldown DC{}{}: {:.0}s",
+            dc,
+            m_tag,
+            fail_until - now
+        );
+        do_fallback(
+            conn,
+            &relay_init,
+            label,
+            dc,
+            is_media,
+            splitter,
+            &clt_decryptor,
+            &clt_encryptor,
+            &tg_encryptor,
+            &tg_decryptor,
+            true,
+            cancel_token,
+        )
+        .await;
+        return;
+    }
 
     let domains = ws_domains(dc, is_media);
-    let (mut ws_opt, ws_failed_redirect, all_redirects) =
-        if let Some(w) = pool.get(dc, is_media, target.clone(), domains.clone()).await {
-            (Some(w), false, false)
-        } else {
-            connect_direct_ws(&target, &domains, ws_timeout).await
-        };
+    let (mut ws_opt, direct_failure) = match connect_direct_ws(&target, &domains, 10.0).await {
+        Ok(ws) => (Some(ws), DirectWsFailure::default()),
+        Err(failure) => (None, failure),
+    };
 
     if ws_opt.is_none() {
         lwarn!(" DC{}{}: все попытки WS провалены (DPI/Интернет)", dc, m_tag);
-        if ws_failed_redirect && all_redirects {
-            WS_BLACKLIST.write().insert(dc_key, true);
-            lwarn!(" DC{}{} заблокирован (302)", dc, m_tag);
+        let delay = if direct_failure.retry_after > Duration::ZERO {
+            direct_failure.retry_after.as_secs_f64()
         } else {
-            DC_FAIL_UNTIL.write().insert(dc_key, now + DC_FAIL_COOLDOWN);
-        }
+            DC_FAIL_COOLDOWN
+        };
+        DC_FAIL_UNTIL.write().insert(dc_key, now + delay);
+        lwarn!(
+            " direct WSS unavailable DC{}{}; retry in {:.0}s",
+            dc,
+            m_tag,
+            delay.ceil()
+        );
         let splitter_fb = MsgSplitter::new(&relay_init, proto);
         do_fallback(
             conn,
@@ -1018,6 +823,7 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
             &clt_encryptor,
             &tg_encryptor,
             &tg_decryptor,
+            !direct_failure.configuration_error && direct_failure.status_code != Some(429),
             cancel_token,
         )
         .await;
@@ -1025,75 +831,40 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
     }
 
     // send direct init
-    let mut ws = ws_opt.take().unwrap();
-    let mut send_ok = ws.send(&relay_init).await.is_ok();
-    if send_ok {
+    let ws = ws_opt.take().unwrap();
+    if ws.send(&relay_init).await.is_ok() {
         ldebug!(" direct relayInit sent DC{}{}", dc, m_tag);
     } else {
         lwarn!(" direct relayInit write fail DC{}{}: closed", dc, m_tag);
         ws.close().await;
-
         DC_FAIL_UNTIL.write().insert(dc_key, now + DC_FAIL_COOLDOWN);
-
-        lwarn!(" direct retry fresh ws DC{}{}", dc, m_tag);
-        let (retry_ws, retry_failed_redirect, retry_all_redirects) =
-            connect_direct_ws(&target, &domains, ws_timeout).await;
-        match retry_ws {
-            None => {
-                if retry_failed_redirect && retry_all_redirects {
-                    WS_BLACKLIST.write().insert(dc_key, true);
-                    lwarn!(" DC{}{} заблокирован (302)", dc, m_tag);
-                }
-                lwarn!(" direct fallback DC{}{}", dc, m_tag);
-                let splitter_fb = MsgSplitter::new(&relay_init, proto);
-                do_fallback(
-                    conn,
-                    &relay_init,
-                    label,
-                    dc,
-                    is_media,
-                    splitter_fb,
-                    &clt_decryptor,
-                    &clt_encryptor,
-                    &tg_encryptor,
-                    &tg_decryptor,
-                    cancel_token,
-                )
-                .await;
-                return;
-            }
-            Some(rws) => {
-                if rws.send(&relay_init).await.is_err() {
-                    lwarn!(" direct relayInit write fail DC{}{}: closed", dc, m_tag);
-                    rws.close().await;
-                    lwarn!(" direct fallback DC{}{}", dc, m_tag);
-                    let splitter_fb = MsgSplitter::new(&relay_init, proto);
-                    do_fallback(
-                        conn,
-                        &relay_init,
-                        label,
-                        dc,
-                        is_media,
-                        splitter_fb,
-                        &clt_decryptor,
-                        &clt_encryptor,
-                        &tg_encryptor,
-                        &tg_decryptor,
-                        cancel_token,
-                    )
-                    .await;
-                    return;
-                }
-                ws = rws;
-                send_ok = true;
-            }
-        }
+        let splitter_fb = MsgSplitter::new(&relay_init, proto);
+        do_fallback(
+            conn,
+            &relay_init,
+            label,
+            dc,
+            is_media,
+            splitter_fb,
+            &clt_decryptor,
+            &clt_encryptor,
+            &tg_encryptor,
+            &tg_decryptor,
+            true,
+            cancel_token,
+        )
+        .await;
+        return;
     }
-    let _ = send_ok;
 
     DC_FAIL_UNTIL.write().remove(&dc_key);
-    let _ = &pool;
     STATS.connections_ws.fetch_add(1, Ordering::Relaxed);
+    linfo!(
+        " DC{}{} connected via direct WSS ({})",
+        dc,
+        media_tag(is_media),
+        target
+    );
 
     bridge_ws(
         conn,
@@ -1114,26 +885,48 @@ pub async fn handle_client(pool: Arc<WsPool>, mut conn: TcpStream, cancel_token:
 }
 
 // connectDirectWS
+#[derive(Default)]
+pub struct DirectWsFailure {
+    pub status_code: Option<i32>,
+    pub retry_after: Duration,
+    pub configuration_error: bool,
+}
+
 pub async fn connect_direct_ws(
     target: &str,
     domains: &[String],
     timeout: f64,
-) -> (Option<RawWebSocket>, bool, bool) {
+) -> Result<RawWebSocket, DirectWsFailure> {
     if domains.is_empty() {
-        return (None, false, false);
+        return Err(DirectWsFailure {
+            configuration_error: true,
+            ..DirectWsFailure::default()
+        });
     }
-    let mut ws_failed_redirect = false;
     let mut all_redirects = true;
+    let mut last_status = None;
 
     for dom in domains {
         match ws_connect(target, dom, "/apiws", timeout).await {
-            Ok(ws) => return (Some(ws), ws_failed_redirect, false),
+            Ok(ws) => return Ok(ws),
             Err(e) => {
                 STATS.ws_errors.fetch_add(1, Ordering::Relaxed);
+                last_status = e.handshake_status().or(last_status);
+                lwarn!(" direct WSS {} via {} failed: {}", dom, target, e.compact());
+                if is_http_status_error(&e, 429) {
+                    let retry_after = retry_after_delay(&e);
+                    return Err(DirectWsFailure {
+                        status_code: Some(429),
+                        retry_after: if retry_after > Duration::ZERO {
+                            retry_after
+                        } else {
+                            CFPROXY_429_COOLDOWN
+                        },
+                        configuration_error: false,
+                    });
+                }
                 if let Some(h) = e.handshake() {
-                    if h.is_redirect() {
-                        ws_failed_redirect = true;
-                    } else {
+                    if !h.is_redirect() {
                         all_redirects = false;
                     }
                 } else {
@@ -1142,7 +935,11 @@ pub async fn connect_direct_ws(
             }
         }
     }
-    (None, ws_failed_redirect, all_redirects)
+    Err(DirectWsFailure {
+        status_code: last_status,
+        retry_after: Duration::ZERO,
+        configuration_error: all_redirects,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1150,7 +947,6 @@ pub async fn connect_direct_ws(
 // ---------------------------------------------------------------------------
 
 pub async fn run_proxy(
-    pool: Arc<WsPool>,
     host: String,
     port: u16,
     dc_opt_map: HashMap<i32, String>,
@@ -1163,14 +959,6 @@ pub async fn run_proxy(
     }
 
     start_cfproxy_refresh();
-
-    {
-        let p = pool.clone();
-        let map = dc_opt_map.clone();
-        tokio::spawn(async move {
-            p.warmup(&map).await;
-        });
-    }
 
     linfo!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     linfo!("  TG WS Proxy запущен");
@@ -1198,10 +986,9 @@ pub async fn run_proxy(
             accept = listener.accept() => {
                 match accept {
                     Ok((conn, _)) => {
-                        let p = pool.clone();
                         let cancel = cancel_root.child_token();
                         tokio::spawn(async move {
-                            handle_client(p, conn, cancel).await;
+                            handle_client(conn, cancel).await;
                         });
                     }
                     Err(_) => {
@@ -1215,7 +1002,6 @@ pub async fn run_proxy(
     drop(listener);
     cancel_root.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
-    pool.close_all().await;
     Ok(())
 }
 
@@ -1239,4 +1025,43 @@ pub fn parse_cidr_pool(cidrs_str: &str) -> HashMap<i32, String> {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ws_domains;
+
+    #[test]
+    fn maps_every_telegram_dc_to_official_websocket_hosts() {
+        let expected = [
+            (1, "pluto"),
+            (2, "venus"),
+            (3, "aurora"),
+            (4, "vesta"),
+            (5, "flora"),
+        ];
+
+        for (dc, name) in expected {
+            assert_eq!(
+                ws_domains(dc, false),
+                vec![
+                    format!("{}.web.telegram.org", name),
+                    format!("{}-1.web.telegram.org", name),
+                ]
+            );
+            assert_eq!(
+                ws_domains(dc, true),
+                vec![
+                    format!("{}-1.web.telegram.org", name),
+                    format!("{}.web.telegram.org", name),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn maps_test_dc_to_dc2_and_rejects_unknown_dcs() {
+        assert_eq!(ws_domains(203, false), ws_domains(2, false));
+        assert!(ws_domains(99, false).is_empty());
+    }
 }

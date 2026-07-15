@@ -47,13 +47,17 @@ namespace {
 void *tgWsProxyHandle = nullptr;
 using TgWsStartProxy = int (*)(const char *, int, const char *, const char *, int);
 using TgWsStopProxy = int (*)();
-using TgWsSetPoolSize = void (*)(int);
 using TgWsSetCacheDir = void (*)(const char *);
 using TgWsSetCfProxyConfig = void (*)(int, int, const char *);
 using TgWsGetStats = char *(*)();
 using TgWsFreeString = void (*)(char *);
 
-constexpr const char *TG_WS_DIRECT_DC_IPS = "2:149.154.167.220,4:149.154.167.220";
+// This reachable Telegram frontend serves DC2/DC4 only. Other DCs must use
+// the regular fallback path; presenting their hostnames here returns the
+// non-transport 302 redirect to core.telegram.org.
+constexpr const char *TG_WS_DIRECT_DC_IPS =
+        "2:149.154.167.220,"
+        "4:149.154.167.220";
 
 TgWsStartProxy tgWsStartProxy = nullptr;
 TgWsStopProxy tgWsStopProxy = nullptr;
@@ -80,16 +84,14 @@ jint startWebSocketProxy(JNIEnv *env, jclass, jint port, jstring cacheDir, jstri
     if (!loadTgWsProxy()) {
         return -10;
     }
-    auto setPoolSize = reinterpret_cast<TgWsSetPoolSize>(dlsym(tgWsProxyHandle, "SetPoolSize"));
     auto setCacheDir = reinterpret_cast<TgWsSetCacheDir>(dlsym(tgWsProxyHandle, "SetCfProxyCacheDir"));
     auto setCfProxyConfig = reinterpret_cast<TgWsSetCfProxyConfig>(dlsym(tgWsProxyHandle, "SetCfProxyConfig"));
-    if (setPoolSize == nullptr || setCacheDir == nullptr || setCfProxyConfig == nullptr) {
+    if (setCacheDir == nullptr || setCfProxyConfig == nullptr) {
         return -11;
     }
 
     const char *cacheDirChars = env->GetStringUTFChars(cacheDir, nullptr);
     const char *secretChars = env->GetStringUTFChars(secret, nullptr);
-    setPoolSize(4);
     setCacheDir(cacheDirChars);
     // Official Telegram WSS is always preferred. Cloudflare is an optional
     // fallback before the engine's final direct TCP attempt.

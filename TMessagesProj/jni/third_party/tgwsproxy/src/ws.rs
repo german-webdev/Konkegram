@@ -4,8 +4,13 @@ use crate::{ldebug};
 use base64::Engine;
 use byteorder::{BigEndian, ByteOrder};
 use rand::RngCore;
-use rustls::{ClientConfig, RootCertStore};
-use rustls_pki_types::ServerName;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::client::WebPkiServerVerifier;
+use rustls::{
+    CertificateError, ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore,
+    SignatureScheme,
+};
+use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,10 +38,101 @@ pub const OP_PONG: u8 = 0xA;
 use once_cell::sync::Lazy;
 
 // Глобальный TLS-конфиг с session resumption cache (аналог tls.NewLRUClientSessionCache(100))
+#[derive(Debug)]
+struct TelegramServerCertVerifier {
+    inner: Arc<WebPkiServerVerifier>,
+}
+
+fn is_official_telegram_wss_name(server_name: &ServerName<'_>) -> bool {
+    matches!(
+        server_name.to_str().as_ref(),
+        "pluto.web.telegram.org"
+            | "pluto-1.web.telegram.org"
+            | "venus.web.telegram.org"
+            | "venus-1.web.telegram.org"
+            | "aurora.web.telegram.org"
+            | "aurora-1.web.telegram.org"
+            | "vesta.web.telegram.org"
+            | "vesta-1.web.telegram.org"
+            | "flora.web.telegram.org"
+            | "flora-1.web.telegram.org"
+    )
+}
+
+impl ServerCertVerifier for TelegramServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        match self.inner.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(verified) => Ok(verified),
+            Err(error)
+                if is_official_telegram_wss_name(server_name)
+                    && matches!(
+                        error,
+                        TlsError::InvalidCertificate(CertificateError::NotValidForName)
+                            | TlsError::InvalidCertificate(
+                                CertificateError::NotValidForNameContext { .. }
+                            )
+                    ) =>
+            {
+                let telegram_name = ServerName::try_from("web.telegram.org")
+                    .expect("static Telegram certificate name is valid");
+                self.inner.verify_server_cert(
+                    end_entity,
+                    intermediates,
+                    &telegram_name,
+                    ocsp_response,
+                    now,
+                )
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
 static TLS_CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| {
-    let roots = RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let roots = Arc::new(RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    ));
+    let verifier = WebPkiServerVerifier::builder(roots)
+        .build()
+        .expect("webpki root store is not empty");
     let mut cfg = ClientConfig::builder()
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(TelegramServerCertVerifier { inner: verifier }))
         .with_no_client_auth();
     cfg.resumption = rustls::client::Resumption::in_memory_sessions(100);
     Arc::new(cfg)
@@ -74,6 +170,9 @@ impl WsError {
         match self {
             WsError::Canceled => "canceled".to_string(),
             WsError::Timeout => "timeout".to_string(),
+            WsError::Handshake(h) if !h.location.is_empty() => {
+                format!("http {} -> {}", h.status_code, h.location)
+            }
             WsError::Handshake(h) => format!("http {}", h.status_code),
             WsError::Io(e) => {
                 if e.kind() == std::io::ErrorKind::TimedOut
@@ -654,12 +753,32 @@ pub async fn ws_connect(
     }
 }
 
-// connectOneWS: перебор доменов
-pub async fn connect_one_ws(ip: &str, domains: &[String]) -> Option<RawWebSocket> {
-    for d in domains {
-        if let Ok(ws) = ws_connect(ip, d, "/apiws", WS_POOL_CONNECT_TIMEOUT).await {
-            return Some(ws);
+#[cfg(test)]
+mod tests {
+    use super::is_official_telegram_wss_name;
+    use rustls_pki_types::ServerName;
+
+    #[test]
+    fn certificate_alias_is_limited_to_official_telegram_wss_names() {
+        for domain in [
+            "pluto.web.telegram.org",
+            "venus-1.web.telegram.org",
+            "aurora.web.telegram.org",
+            "vesta-1.web.telegram.org",
+            "flora.web.telegram.org",
+        ] {
+            let name = ServerName::try_from(domain).unwrap();
+            assert!(is_official_telegram_wss_name(&name));
+        }
+
+        for domain in [
+            "web.telegram.org",
+            "kws2.web.telegram.org",
+            "example.web.telegram.org",
+            "kws2.community-relay.example",
+        ] {
+            let name = ServerName::try_from(domain).unwrap();
+            assert!(!is_official_telegram_wss_name(&name));
         }
     }
-    None
 }

@@ -12,4 +12,6 @@ directory. The original `tg-ws-proxy` project by Flowseal is MIT-licensed.
 The prebuilt `libtgwsproxy.so` files are generated from the accompanying Rust
 source. Konkegram enables TLS certificate verification rather than using the
 upstream permissive verifier. It also skips community relay-domain
-initialization and refresh while Cloudflare fallback is disabled.
+initialization and refresh while Cloudflare fallback is disabled. Konkegram
+also logs the selected DC and regular/media route for focused transport
+diagnostics.
