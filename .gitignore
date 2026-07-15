@@ -7,6 +7,7 @@ build/
 obj/
 *.iml
 local.properties
+**/google-services.json
 TMessagesProj/.cxx/
 TMessagesProj/config/konkegram-release.keystore
 TMessagesProj/jniLibs/
