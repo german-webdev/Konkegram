@@ -225,7 +225,10 @@ impl WsPool {
 
     pub async fn warmup(self: &Arc<Self>, dc_opt_map: &HashMap<i32, String>) {
         for (dc, target_ip) in dc_opt_map {
-            if target_ip.is_empty() {
+            // DC2 and DC4 are the common account/media frontends. Other
+            // configured DCs remain fully supported and are filled lazily on
+            // first use, avoiding 40 idle TLS sockets at application startup.
+            if target_ip.is_empty() || !matches!(*dc, 2 | 4) {
                 continue;
             }
             for is_media in [false, true] {
@@ -1143,6 +1146,31 @@ pub async fn connect_direct_ws(
         }
     }
     (None, ws_failed_redirect, all_redirects)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ws_domains;
+
+    #[test]
+    fn production_dcs_have_regular_and_media_websocket_domains() {
+        for dc in 1..=5 {
+            assert_eq!(
+                ws_domains(dc, false),
+                vec![
+                    format!("kws{}.web.telegram.org", dc),
+                    format!("kws{}-1.web.telegram.org", dc),
+                ]
+            );
+            assert_eq!(
+                ws_domains(dc, true),
+                vec![
+                    format!("kws{}-1.web.telegram.org", dc),
+                    format!("kws{}.web.telegram.org", dc),
+                ]
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
