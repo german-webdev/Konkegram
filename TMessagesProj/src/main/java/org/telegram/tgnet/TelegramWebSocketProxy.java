@@ -62,37 +62,37 @@ public final class TelegramWebSocketProxy {
         secret = getOrCreateSecret(preferences);
         boolean defaultEnabled = !preferences.getBoolean("proxy_enabled", false);
         enabled = preferences.getBoolean(PREF_ENABLED, defaultEnabled);
-        cloudflareFallback = preferences.getBoolean(PREF_CLOUDFLARE_FALLBACK, true);
-        if (!preferences.contains(PREF_ENABLED) || !preferences.contains(PREF_CLOUDFLARE_FALLBACK)) {
+        boolean savedCloudflareFallback = preferences.getBoolean(PREF_CLOUDFLARE_FALLBACK, true);
+        cloudflareFallback = enabled && savedCloudflareFallback;
+        if (!preferences.contains(PREF_ENABLED)
+                || !preferences.contains(PREF_CLOUDFLARE_FALLBACK)
+                || savedCloudflareFallback != cloudflareFallback) {
             preferences.edit()
                     .putBoolean(PREF_ENABLED, enabled)
                     .putBoolean(PREF_CLOUDFLARE_FALLBACK, cloudflareFallback)
                     .apply();
         }
         if (enabled && !start()) {
-            enabled = false;
-            preferences.edit().putBoolean(PREF_ENABLED, false).apply();
+            disable(preferences);
         }
     }
 
     public static synchronized boolean setEnabled(boolean value) {
-        if (value == enabled && (!value || running)) {
+        if (value == enabled && (value ? running : !cloudflareFallback)) {
             return true;
         }
 
         if (value) {
             secret = getOrCreateSecret(preferences());
             if (!start()) {
-                enabled = false;
-                preferences().edit().putBoolean(PREF_ENABLED, false).apply();
+                disable(preferences());
                 return false;
             }
             enabled = true;
             preferences().edit().putBoolean(PREF_ENABLED, true).apply();
             ConnectionsManager.refreshProxySettings();
         } else {
-            enabled = false;
-            preferences().edit().putBoolean(PREF_ENABLED, false).apply();
+            disable(preferences());
             ConnectionsManager.refreshProxySettings();
             stop();
         }
@@ -118,8 +118,7 @@ public final class TelegramWebSocketProxy {
             if (!start()) {
                 cloudflareFallback = previousValue;
                 if (!start()) {
-                    enabled = false;
-                    preferences().edit().putBoolean(PREF_ENABLED, false).apply();
+                    disable(preferences());
                 }
                 ConnectionsManager.refreshProxySettings();
                 return false;
@@ -176,8 +175,7 @@ public final class TelegramWebSocketProxy {
         FileLog.d("DPI Bypass: active network changed, restarting WebSocket bridge");
         stop();
         if (!start()) {
-            enabled = false;
-            preferences().edit().putBoolean(PREF_ENABLED, false).apply();
+            disable(preferences());
             FileLog.e("DPI Bypass: WebSocket bridge could not restart after network change");
         }
         ApplicationLoader.applicationHandler.post(ConnectionsManager::refreshProxySettings);
@@ -224,6 +222,15 @@ public final class TelegramWebSocketProxy {
 
     private static SharedPreferences preferences() {
         return ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+    }
+
+    private static void disable(SharedPreferences preferences) {
+        enabled = false;
+        cloudflareFallback = false;
+        preferences.edit()
+                .putBoolean(PREF_ENABLED, false)
+                .putBoolean(PREF_CLOUDFLARE_FALLBACK, false)
+                .apply();
     }
 
     private static String getOrCreateSecret(SharedPreferences preferences) {
