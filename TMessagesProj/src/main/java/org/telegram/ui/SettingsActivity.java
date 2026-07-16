@@ -1523,7 +1523,9 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
             } else if (which == 8) { // ?
                 SharedConfig.toggleRoundCamera16to9();
             } else if (which == 9) { // Check app update
-                ((LaunchActivity) getParentActivity()).checkAppUpdate(true, null);
+                AlertDialog progressDialog = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER, getResourceProvider());
+                progressDialog.showDelayed(200);
+                ((LaunchActivity) getParentActivity()).checkAppUpdate(true, new Browser.Progress(null, progressDialog::dismiss));
             } else if (which == 10) { // Read all chats
                 getMessagesStorage().readAllDialogs(-1);
             } else if (which == 11) { // Voip audio effects

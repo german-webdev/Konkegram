@@ -428,6 +428,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 if (useProxySettings && dpiBypass) {
                     TelegramWebSocketProxy.setEnabled(false);
                     dpiBypass = false;
+                    cloudflareFallback = false;
                 }
                 updateRows(true);
 
@@ -484,6 +485,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                 }
                 if (TelegramWebSocketProxy.setEnabled(enable)) {
                     dpiBypass = enable;
+                    cloudflareFallback = TelegramWebSocketProxy.isCloudflareFallbackEnabled();
                     updateRows(true);
                     ((TextCheckCell) view).setChecked(dpiBypass);
                     NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
