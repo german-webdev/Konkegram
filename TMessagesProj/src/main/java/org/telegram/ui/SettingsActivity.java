@@ -1414,7 +1414,7 @@ public class SettingsActivity extends BaseFragment implements NotificationCenter
                 getString("DebugMenuClearMediaCache", R.string.DebugMenuClearMediaCache),
                 getString(R.string.DebugMenuCallSettings),
                 null,
-                BuildVars.DEBUG_PRIVATE_VERSION || ApplicationLoader.isStandaloneBuild() || ApplicationLoader.isBetaBuild() ? getString("DebugMenuCheckAppUpdate", R.string.DebugMenuCheckAppUpdate) : null,
+                BuildVars.DEBUG_PRIVATE_VERSION || ApplicationLoader.isStandaloneBuild() || ApplicationLoader.isBetaBuild() || ApplicationLoader.applicationLoaderInstance.isCustomUpdate() ? getString("DebugMenuCheckAppUpdate", R.string.DebugMenuCheckAppUpdate) : null,
                 getString("DebugMenuReadAllDialogs", R.string.DebugMenuReadAllDialogs),
                 BuildVars.DEBUG_PRIVATE_VERSION ? SharedConfig.disableVoiceAudioEffects ? "Enable voip audio effects" : "Disable voip audio effects" : null,
                 BuildVars.DEBUG_PRIVATE_VERSION ? "Clean app update" : null,

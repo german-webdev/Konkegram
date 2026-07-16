@@ -29,6 +29,8 @@ import org.telegram.ui.IUpdateLayout;
 import java.io.File;
 
 public class ApplicationLoaderImpl extends ApplicationLoader {
+    private KonkegramUpdater updater;
+
     @Override
     protected String onGetApplicationId() {
         return BuildConfig.APPLICATION_ID;
@@ -203,49 +205,60 @@ public class ApplicationLoaderImpl extends ApplicationLoader {
 
     @Override
     public boolean isCustomUpdate() {
-        return !TextUtils.isEmpty(org.telegram.messenger.BuildConfig.BETA_URL);
+        return "HA_private".equals(BuildConfig.BUILD_TYPE);
     }
 
     @Override
     public BetaUpdate getUpdate() {
         if (!isCustomUpdate()) return null;
-        return BetaUpdaterController.getInstance().getUpdate();
+        return getUpdater().getUpdate();
     }
 
     @Override
     public void checkUpdate(boolean force, Runnable whenDone) {
         if (!isCustomUpdate()) return;
-        BetaUpdaterController.getInstance().checkForUpdate(force, whenDone);
+        getUpdater().checkForUpdate(force, whenDone);
     }
 
     @Override
     public void downloadUpdate() {
         if (!isCustomUpdate()) return;
-        BetaUpdaterController.getInstance().downloadUpdate();
+        getUpdater().downloadUpdate();
     }
 
     @Override
     public void cancelDownloadingUpdate() {
         if (!isCustomUpdate()) return;
-        BetaUpdaterController.getInstance().cancelDownloadingUpdate();
+        getUpdater().cancelDownload();
+    }
+
+    @Override
+    public boolean wasLastUpdateCheckSuccessful() {
+        return isCustomUpdate() && getUpdater().wasLastCheckSuccessful();
+    }
+
+    @Override
+    public void remindUpdateLater() {
+        if (!isCustomUpdate()) return;
+        getUpdater().remindLater();
     }
 
     @Override
     public boolean isDownloadingUpdate() {
         if (!isCustomUpdate()) return false;
-        return BetaUpdaterController.getInstance().isDownloading();
+        return getUpdater().isDownloading();
     }
 
     @Override
     public float getDownloadingUpdateProgress() {
         if (!isCustomUpdate()) return 0;
-        return BetaUpdaterController.getInstance().getDownloadingProgress();
+        return getUpdater().getDownloadProgress();
     }
 
     @Override
     public File getDownloadedUpdateFile() {
         if (!isCustomUpdate()) return null;
-        return BetaUpdaterController.getInstance().getDownloadedFile();
+        return getUpdater().getDownloadedFile();
     }
 
     @Override
@@ -262,5 +275,14 @@ public class ApplicationLoaderImpl extends ApplicationLoader {
             FileLog.e(e);
         }
         return true;
+    }
+
+    private KonkegramUpdater getUpdater() {
+        if (updater == null) {
+            updater = new KonkegramUpdater(
+                    "beta",
+                    "https://github.com/german-webdev/Konkegram/releases/download/beta/update-beta.json");
+        }
+        return updater;
     }
 }

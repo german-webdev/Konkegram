@@ -315,7 +315,10 @@ public class UpdateAppAlertDialog extends BottomSheet {
 
         ButtonWithCounterView scheduleButton = new ButtonWithCounterView(context, false, null);
         scheduleButton.setText(LocaleController.getString(R.string.AppUpdateRemindMeLater), false);
-        scheduleButton.setOnClickListener(v -> dismiss());
+        scheduleButton.setOnClickListener(v -> {
+            ApplicationLoader.applicationLoaderInstance.remindUpdateLater();
+            dismiss();
+        });
         container.addView(scheduleButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.FILL_HORIZONTAL | Gravity.BOTTOM, 20, 4, 20, 8));
     }
 

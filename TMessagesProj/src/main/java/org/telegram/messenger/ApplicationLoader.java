@@ -724,6 +724,7 @@ public class ApplicationLoader extends Application {
     }
     public void downloadUpdate() {}
     public void cancelDownloadingUpdate() {}
+    public void remindUpdateLater() {}
     public boolean isDownloadingUpdate() {
         return false;
     }
@@ -731,6 +732,9 @@ public class ApplicationLoader extends Application {
         return 0.0f;
     }
     public void checkUpdate(boolean force, Runnable whenDone) {}
+    public boolean wasLastUpdateCheckSuccessful() {
+        return true;
+    }
     public BetaUpdate getUpdate() {
         return null;
     }
