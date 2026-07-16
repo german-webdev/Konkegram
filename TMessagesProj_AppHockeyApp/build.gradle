@@ -56,14 +56,14 @@ android {
 
     signingConfigs {
         debug {
-            storeFile file("../TMessagesProj/config/release.keystore")
+            storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
         }
 
         release {
-            storeFile file("../TMessagesProj/config/release.keystore")
+            storeFile file(project.findProperty("RELEASE_STORE_FILE") ?: "../TMessagesProj/config/release.keystore")
             storePassword RELEASE_STORE_PASSWORD
             keyAlias RELEASE_KEY_ALIAS
             keyPassword RELEASE_KEY_PASSWORD
@@ -71,6 +71,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix ".beta"
+            signingConfig signingConfigs.debug
+        }
         HA_private {
             debuggable false
             jniDebuggable false
@@ -146,9 +150,12 @@ android {
     defaultConfig.versionCode = Integer.parseInt(APP_VERSION_CODE)
 
     applicationVariants.all { variant ->
+        def betaVersionCode = project.hasProperty("BETA_VERSION_CODE")
+                ? Integer.parseInt(project.property("BETA_VERSION_CODE").toString())
+                : (int) (System.currentTimeMillis() / 1000L)
         variant.outputs.all { output ->
             outputFileName = "Konkegram-Beta.apk"
-            output.versionCodeOverride = defaultConfig.versionCode * 10 + variant.productFlavors.get(0).abiVersionCode
+            output.versionCodeOverride = betaVersionCode
         }
     }
 

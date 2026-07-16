@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -95,10 +97,82 @@ jobs:
           fi
 
           mkdir -p release
-          cp "$arm64_apk" "release/konkegram-v${version_name}-release-arm64-v8a.apk"
-          cp "$armv7_apk" "release/konkegram-v${version_name}-release-armeabi-v7a.apk"
-          cp "$universal_apk" "release/konkegram-v${version_name}-release-universal.apk"
-          sha256sum release/*.apk > release/SHA256SUMS.txt
+          arm64_name="konkegram-v${version_name}-release-arm64-v8a.apk"
+          armv7_name="konkegram-v${version_name}-release-armeabi-v7a.apk"
+          universal_name="konkegram-v${version_name}-release-universal.apk"
+          cp "$arm64_apk" "release/$arm64_name"
+          cp "$armv7_apk" "release/$armv7_name"
+          cp "$universal_apk" "release/$universal_name"
+
+          release_tag="v${version_name}"
+          release_base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+          arm64_sha256=$(sha256sum "release/$arm64_name" | cut -d ' ' -f 1)
+          armv7_sha256=$(sha256sum "release/$armv7_name" | cut -d ' ' -f 1)
+          universal_sha256=$(sha256sum "release/$universal_name" | cut -d ' ' -f 1)
+          arm64_size=$(stat -c '%s' "release/$arm64_name")
+          armv7_size=$(stat -c '%s' "release/$armv7_name")
+          universal_size=$(stat -c '%s' "release/$universal_name")
+          aapt="${ANDROID_SDK_ROOT}/build-tools/35.0.0/aapt"
+          arm64_version_code=$("$aapt" dump badging "release/$arm64_name" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+          armv7_version_code=$("$aapt" dump badging "release/$armv7_name" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+          universal_version_code=$("$aapt" dump badging "release/$universal_name" | sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p")
+
+          if [ -z "$arm64_version_code" ] || [ -z "$armv7_version_code" ] || [ -z "$universal_version_code" ]; then
+            echo "::error::Unable to read versionCode from one or more release APKs"
+            exit 1
+          fi
+
+          previous_tag=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)
+          if [ -n "$previous_tag" ]; then
+            changelog=$(git log --pretty=format:'- %s' "${previous_tag}..${GITHUB_SHA}")
+          else
+            changelog=$(git log -n 20 --pretty=format:'- %s' "${GITHUB_SHA}")
+          fi
+
+          jq -n \
+            --arg version_name "$version_name" \
+            --arg changelog "$changelog" \
+            --arg arm64_url "${release_base_url}/${arm64_name}" \
+            --arg arm64_sha256 "$arm64_sha256" \
+            --argjson arm64_size "$arm64_size" \
+            --argjson arm64_version_code "$arm64_version_code" \
+            --arg armv7_url "${release_base_url}/${armv7_name}" \
+            --arg armv7_sha256 "$armv7_sha256" \
+            --argjson armv7_size "$armv7_size" \
+            --argjson armv7_version_code "$armv7_version_code" \
+            --arg universal_url "${release_base_url}/${universal_name}" \
+            --arg universal_sha256 "$universal_sha256" \
+            --argjson universal_size "$universal_size" \
+            --argjson universal_version_code "$universal_version_code" \
+            '{
+              schema: 1,
+              version_name: $version_name,
+              mandatory: false,
+              changelog: $changelog,
+              assets: {
+                "arm64-v8a": {
+                  version_code: $arm64_version_code,
+                  url: $arm64_url,
+                  sha256: $arm64_sha256,
+                  size: $arm64_size
+                },
+                "armeabi-v7a": {
+                  version_code: $armv7_version_code,
+                  url: $armv7_url,
+                  sha256: $armv7_sha256,
+                  size: $armv7_size
+                },
+                universal: {
+                  version_code: $universal_version_code,
+                  url: $universal_url,
+                  sha256: $universal_sha256,
+                  size: $universal_size
+                }
+              }
+            }' > release/update.json
+
+          jq empty release/update.json
+          sha256sum release/*.apk release/update.json > release/SHA256SUMS.txt
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
