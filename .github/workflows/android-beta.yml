@@ -25,6 +25,12 @@ jobs:
       ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       ORG_GRADLE_PROJECT_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       ORG_GRADLE_PROJECT_RELEASE_STORE_FILE: ../TMessagesProj/config/konkegram-release.keystore
+      NATIVE_COMPILER_LAUNCHER: ccache
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPILERCHECK: string:android-ndk-27.2.12479018
+      CCACHE_MAXSIZE: 4G
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "1"
 
     steps:
       - name: Checkout sources
@@ -42,12 +48,38 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
+          cache-read-only: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Install Android build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Install native compiler cache
+        run: |
+          if ! command -v ccache >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes ccache
+          fi
+          ccache --version
+
+      - name: Restore native compiler cache
+        id: ccache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-v1-${{ runner.os }}-ndk-27.2.12479018-cmake-3.22.1-${{ github.sha }}
+          restore-keys: |
+            ccache-v1-${{ runner.os }}-ndk-27.2.12479018-cmake-3.22.1-
+
+      - name: Configure native compiler cache
+        run: |
+          ccache --set-config=max_size="$CCACHE_MAXSIZE"
+          ccache --set-config=compression=true
+          ccache --set-config=compression_level="$CCACHE_COMPRESSLEVEL"
+          ccache --zero-stats
+          ccache --show-config
 
       - name: Restore beta credentials
         env:
@@ -84,9 +116,21 @@ jobs:
             -PAPP_VERSION_NAME="$beta_version_name" \
             -PBETA_VERSION_CODE="$beta_version_code" \
             --stacktrace \
+            --build-cache \
             --no-daemon
 
           printf '%s' "$beta_version_name" > beta-version-name.txt
+
+      - name: Report native compiler cache
+        if: always()
+        run: ccache --show-stats
+
+      - name: Save native compiler cache
+        if: success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.ccache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-v1-${{ runner.os }}-ndk-27.2.12479018-cmake-3.22.1-${{ github.sha }}
 
       - name: Prepare beta files
         shell: bash

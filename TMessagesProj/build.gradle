@@ -82,6 +82,7 @@ dependencies {
 }
 
 def isWindows = String.valueOf(DefaultNativePlatform.currentOperatingSystem.toFamilyName() == OperatingSystemFamily.WINDOWS)
+def nativeCompilerLauncher = System.getenv("NATIVE_COMPILER_LAUNCHER")
 android {
     compileSdkVersion 35
     buildToolsVersion '35.0.0'
@@ -121,6 +122,10 @@ android {
             cmake {
                 version '3.22.1'
                 arguments '-DANDROID_STL=c++_static', '-DANDROID_PLATFORM=android-21' //, '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+                if (nativeCompilerLauncher != null && !nativeCompilerLauncher.trim().isEmpty()) {
+                    arguments "-DCMAKE_C_COMPILER_LAUNCHER=${nativeCompilerLauncher}",
+                            "-DCMAKE_CXX_COMPILER_LAUNCHER=${nativeCompilerLauncher}"
+                }
             }
         }
     }

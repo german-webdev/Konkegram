@@ -3,6 +3,7 @@
 .cargo-target/
 TMessagesProj/jni/third_party/tgwsproxy/target/
 .gradle/
+.ccache/
 build/
 obj/
 *.iml
