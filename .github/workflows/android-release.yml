@@ -231,7 +231,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release_notes=$(cat <<'EOF'
+          telegram_version_name=$(sed -n 's/^TELEGRAM_VERSION_NAME=//p' gradle.properties)
+          release_notes=$(cat <<EOF
+          **Upstream base:** Telegram for Android ${telegram_version_name}.
+
           ## APK downloads
 
           - **Universal**: recommended for most users; supports ARM64, ARMv7, x86 and x86_64.
