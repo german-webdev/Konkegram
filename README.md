@@ -22,10 +22,23 @@ See [Release downloads](RELEASES.md) to choose the correct APK for a device.
 
 ## Building
 
-Open the project in Android Studio and use the Android SDK, NDK and CMake
-versions declared by the project. Configure your own Telegram API, Firebase and
-signing credentials outside version control before building a distributable
-application.
+The current upstream toolchain uses Android Studio 2025.1.4, Android SDK 35,
+Android NDK 27.2.12479018 and CMake 3.22.1.
+
+Clone the repository together with its native dependencies:
+
+```bash
+git clone --recursive --shallow-submodules https://github.com/german-webdev/Konkegram.git
+```
+
+For an existing checkout, initialize or update the submodules before building:
+
+```bash
+git submodule update --init --recursive --depth=1
+```
+
+Configure your own Telegram API, Firebase and signing credentials outside
+version control before building a distributable application.
 
 Signing keys, passwords, service-account credentials and other private material
 must be kept outside version control. Maintainer release procedures are not
