@@ -1645,12 +1645,12 @@ public class LocaleController {
 
     private static String formatString(String key, String fallback, int res, Object... args) {
         try {
-            final String value = getInstance().getStringV2(key, res, fallback);
-            if (value == null) {
+            final String rawValue = getInstance().getStringV2(key, res, fallback);
+            if (rawValue == null) {
                 return "LOC_ERR: " + key;
             }
 
-            value = applyKonkegramBrand(value);
+            final String value = applyKonkegramBrand(rawValue);
             if (getInstance().currentLocale != null) {
                 return String.format(getInstance().currentLocale, value, args);
             } else {
@@ -1672,12 +1672,12 @@ public class LocaleController {
 
     private static CharSequence formatSpannable(String key, String fallback, int res, Object... args) {
         try {
-            final String value = getInstance().getStringV2(key, res, fallback);
-            if (value == null) {
+            final String rawValue = getInstance().getStringV2(key, res, fallback);
+            if (rawValue == null) {
                 return "LOC_ERR: " + key;
             }
 
-            value = applyKonkegramBrand(value);
+            final String value = applyKonkegramBrand(rawValue);
             SpannableStringBuilder builder = new SpannableStringBuilder(value);
             for (int i = 0; i < args.length; i++) {
                 String formatter = "s";
