@@ -13,13 +13,14 @@ import android.util.Base64;
 
 import androidx.annotation.Keep;
 
-import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import androidx.annotation.OptIn;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import com.google.android.gms.tasks.Task;
 import com.google.android.play.core.integrity.IntegrityManager;
 import com.google.android.play.core.integrity.IntegrityManagerFactory;
 import com.google.android.play.core.integrity.IntegrityTokenRequest;
 import com.google.android.play.core.integrity.IntegrityTokenResponse;
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -43,6 +44,9 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.StatsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.utils.proxy.WebProxyConnectionTester;
+import org.telegram.utils.proxy.WebProxyTransport;
+import org.telegram.utils.proxy.ProxySettings;
 import org.telegram.ui.Components.VideoPlayer;
 import org.telegram.ui.LoginActivity;
 
@@ -74,7 +78,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLException;
-
 public class ConnectionsManager extends BaseController {
 
     public final static int ConnectionTypeGeneric = 1;
@@ -660,14 +663,9 @@ public class ConnectionsManager extends BaseController {
     }
 
     public void init(int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection) {
-        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-        String proxyAddress = preferences.getString("proxy_ip", "");
-        String proxyUsername = preferences.getString("proxy_user", "");
-        String proxyPassword = preferences.getString("proxy_pass", "");
-        String proxySecret = preferences.getString("proxy_secret", "");
-        int proxyPort = preferences.getInt("proxy_port", 1080);
-
-        applyProxySettings(currentAccount, preferences.getBoolean("proxy_enabled", false), proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+        final SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+        final ProxySettings proxySettings = ProxySettings.fromSharedPreferences(preferences);
+        applyProxySettings(currentAccount, preferences.getBoolean("proxy_enabled", false), proxySettings);
         String installer = "";
         try {
             Context context = ApplicationLoader.applicationContext;
@@ -759,23 +757,20 @@ public class ConnectionsManager extends BaseController {
         return lastPauseTime;
     }
 
-    public long checkProxy(String address, int port, String username, String password, String secret, RequestTimeDelegate requestTimeDelegate) {
-        if (TextUtils.isEmpty(address)) {
+    public long checkProxy(ProxySettings settings, RequestTimeDelegate requestTimeDelegate) {
+        if (settings == null || !settings.isValid()) {
             return 0;
         }
-        if (address == null) {
-            address = "";
+        if (settings.getType() == ProxySettings.Type.WEB) {
+            WebProxyConnectionTester.getInstance().checkProxy(settings, requestTimeDelegate, this::checkWebProxyInternal);
+            return 0;
         }
-        if (username == null) {
-            username = "";
-        }
-        if (password == null) {
-            password = "";
-        }
-        if (secret == null) {
-            secret = "";
-        }
-        return native_checkProxy(currentAccount, address, port, username, password, secret, requestTimeDelegate);
+
+        return native_checkProxy(currentAccount, settings.getAddress(), settings.getPort(), settings.getUser(), settings.getPassword(), settings.getSecret(), requestTimeDelegate);
+    }
+
+    private void checkWebProxyInternal(ProxySettings settings, int port, RequestTimeDelegate requestTimeDelegate) {
+        native_checkProxy(currentAccount, "127.0.0.1", port, "", "", settings.getSecret(), requestTimeDelegate);
     }
 
     public void setAppPaused(final boolean value, final boolean byScreenState) {
@@ -905,21 +900,13 @@ public class ConnectionsManager extends BaseController {
                     task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
                     FileLog.d("9. currentTask = mozilla");
                     currentTask = task;
-                } else if (second == 1) {
+                } else {
                     if (BuildVars.LOGS_ENABLED) {
                         FileLog.d("start google txt task");
                     }
                     GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
                     task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
                     FileLog.d("11. currentTask = dnstxt");
-                    currentTask = task;
-                } else {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("start firebase task");
-                    }
-                    FirebaseTask task = new FirebaseTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("12. currentTask = firebase");
                     currentTask = task;
                 }
             });
@@ -978,22 +965,9 @@ public class ConnectionsManager extends BaseController {
         KeepAliveJob.startJob();
     }
 
-    public static void setProxySettings(boolean enabled, String address, int port, String username, String password, String secret) {
-        if (address == null) {
-            address = "";
-        }
-        if (username == null) {
-            username = "";
-        }
-        if (password == null) {
-            password = "";
-        }
-        if (secret == null) {
-            secret = "";
-        }
-
+    public static void setProxySettings(boolean enabled, ProxySettings settings) {
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            applyProxySettings(a, enabled, address, port, username, password, secret);
+            applyProxySettings(a, enabled, settings);
             AccountInstance accountInstance = AccountInstance.getInstance(a);
             if (accountInstance.getUserConfig().isClientActivated()) {
                 accountInstance.getMessagesController().checkPromoInfo(true);
@@ -1005,20 +979,24 @@ public class ConnectionsManager extends BaseController {
         SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
         setProxySettings(
                 preferences.getBoolean("proxy_enabled", false),
-                preferences.getString("proxy_ip", ""),
-                preferences.getInt("proxy_port", 1080),
-                preferences.getString("proxy_user", ""),
-                preferences.getString("proxy_pass", ""),
-                preferences.getString("proxy_secret", "")
+                ProxySettings.fromSharedPreferences(preferences)
         );
     }
 
-    private static void applyProxySettings(int account, boolean enabled, String address, int port, String username, String password, String secret) {
+    private static void applyProxySettings(int account, boolean enabled, ProxySettings settings) {
         if (TelegramWebSocketProxy.isReady()) {
+            WebProxyTransport.stop();
             native_setProxySettings(account, TelegramWebSocketProxy.getHost(), TelegramWebSocketProxy.getPort(), "", "", TelegramWebSocketProxy.getProxySecret());
-        } else if (enabled && !TextUtils.isEmpty(address)) {
-            native_setProxySettings(account, address, port, username, password, secret);
+        } else if (enabled && settings != null && settings.isValid()) {
+            if (settings.getType() == ProxySettings.Type.WEB) {
+                int localPort = WebProxyTransport.start(settings.getAddress(), settings.getSecret());
+                native_setProxySettings(account, "127.0.0.1", localPort != 0 ? localPort : 9, "", "", settings.getSecret());
+            } else {
+                WebProxyTransport.stop();
+                native_setProxySettings(account, settings.getAddress(), settings.getPort(), settings.getUser(), settings.getPassword(), settings.getSecret());
+            }
         } else {
+            WebProxyTransport.stop();
             native_setProxySettings(account, "", 1080, "", "", "");
         }
     }
@@ -1519,90 +1497,6 @@ public class ConnectionsManager extends BaseController {
         }
     }
 
-    private static class FirebaseTask extends AsyncTask<Void, Void, NativeByteBuffer> {
-
-        private int currentAccount;
-        private FirebaseRemoteConfig firebaseRemoteConfig;
-
-        public FirebaseTask(int instance) {
-            super();
-            currentAccount = instance;
-        }
-
-        protected NativeByteBuffer doInBackground(Void... voids) {
-            try {
-                if (native_isTestBackend(currentAccount) != 0) {
-                    throw new Exception("test backend");
-                }
-                firebaseRemoteConfig = FirebaseRemoteConfig.getInstance();
-                String currentValue = firebaseRemoteConfig.getString("ipconfigv3");
-                if (BuildVars.LOGS_ENABLED) {
-                    FileLog.d("current firebase value = " + currentValue);
-                }
-
-                firebaseRemoteConfig.fetch(0).addOnCompleteListener(finishedTask -> {
-                    final boolean success = finishedTask.isSuccessful();
-                    Utilities.stageQueue.postRunnable(() -> {
-                        if (success) {
-                            firebaseRemoteConfig.activate().addOnCompleteListener(finishedTask2 -> {
-                                FileLog.d("6. currentTask = null");
-                                currentTask = null;
-                                String config = firebaseRemoteConfig.getString("ipconfigv3");
-                                if (!TextUtils.isEmpty(config)) {
-                                    byte[] bytes = Base64.decode(config, Base64.DEFAULT);
-                                    try {
-                                        NativeByteBuffer buffer = new NativeByteBuffer(bytes.length);
-                                        buffer.writeBytes(bytes);
-                                        int date = (int) (firebaseRemoteConfig.getInfo().getFetchTimeMillis() / 1000);
-                                        native_applyDnsConfig(currentAccount, buffer.address, AccountInstance.getInstance(currentAccount).getUserConfig().getClientPhone(), date);
-                                    } catch (Exception e) {
-                                        FileLog.e(e);
-                                    }
-                                } else {
-                                    if (BuildVars.LOGS_ENABLED) {
-                                        FileLog.d("failed to get firebase result");
-                                        FileLog.d("start dns txt task");
-                                    }
-                                    GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                                    FileLog.d("7. currentTask = GoogleDnsLoadTask");
-                                    currentTask = task;
-                                }
-                            });
-                        } else {
-                            if (BuildVars.LOGS_ENABLED) {
-                                FileLog.d("failed to get firebase result 2");
-                                FileLog.d("start dns txt task");
-                            }
-                            GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                            task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                            FileLog.d("7. currentTask = GoogleDnsLoadTask");
-                            currentTask = task;
-                        }
-                    });
-                });
-            } catch (Throwable e) {
-                Utilities.stageQueue.postRunnable(() -> {
-                    if (BuildVars.LOGS_ENABLED) {
-                        FileLog.d("failed to get firebase result");
-                        FileLog.d("start dns txt task");
-                    }
-                    GoogleDnsLoadTask task = new GoogleDnsLoadTask(currentAccount);
-                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, null, null, null);
-                    FileLog.d("8. currentTask = GoogleDnsLoadTask");
-                    currentTask = task;
-                });
-                FileLog.e(e, false);
-            }
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(NativeByteBuffer result) {
-
-        }
-    }
-
     public static long lastPremiumFloodWaitShown = 0;
     @Keep
     public static void onPremiumFloodWait(final int currentAccount, final int requestToken, boolean isUpload) {
@@ -1676,4 +1570,8 @@ public class ConnectionsManager extends BaseController {
     public static void onCaptchaCheck(final int currentAccount, final int requestToken, final String action, final String key_id) {
         CaptchaController.request(currentAccount, requestToken, action, key_id);
     }
+
+    public static native byte[] nativeTestGenerateClientHello(String domain);
+
+
 }
