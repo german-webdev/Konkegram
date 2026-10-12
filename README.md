@@ -22,7 +22,7 @@ See [Release downloads](RELEASES.md) to choose the correct APK for a device.
 
 ## Building
 
-The current upstream toolchain uses Android Studio 2025.1.4, Android SDK 35,
+The current upstream toolchain uses Android Studio 2025.1.4, Android SDK 36,
 Android NDK 27.2.12479018 and CMake 3.22.1.
 
 Clone the repository together with its native dependencies:

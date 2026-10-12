@@ -9,7 +9,6 @@
 package org.telegram.ui;
 
 import static org.telegram.messenger.AndroidUtilities.dp;
-import static org.telegram.messenger.AndroidUtilities.replaceSingleLinkBold;
 import static org.telegram.messenger.LocaleController.formatPluralString;
 import static org.telegram.messenger.LocaleController.formatString;
 import static org.telegram.ui.Components.Premium.LimitReachedBottomSheet.TYPE_BOOSTS_FOR_USERS;
@@ -23,6 +22,7 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.Dialog;
 import android.app.PictureInPictureParams;
+import android.app.PictureInPictureUiState;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -85,8 +85,6 @@ import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.gms.common.api.Status;
 import com.google.common.primitives.Longs;
@@ -174,6 +172,7 @@ import org.telegram.ui.Cells.ChatMessageCell;
 import org.telegram.ui.Cells.LanguageCell;
 import org.telegram.ui.Components.ActivityWindowEmptyBackgroundDrawable;
 import org.telegram.ui.Components.AlertsCreator;
+import org.telegram.ui.Components.AnimatedEmojiDrawable;
 import org.telegram.ui.Components.AppIconBulletinLayout;
 import org.telegram.ui.Components.AttachBotIntroTopView;
 import org.telegram.ui.Components.AudioPlayerAlert;
@@ -423,7 +422,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     Uri uri = intent.getData();
                     if (uri != null) {
                         String url = uri.toString().toLowerCase();
-                        isProxy = url.startsWith("tg:proxy") || url.startsWith("tg://proxy") || url.startsWith("tg:socks") || url.startsWith("tg://socks");
+                        isProxy = url.startsWith("tg:proxy") || url.startsWith("tg://proxy")
+                                || url.startsWith("tg:webproxy") || url.startsWith("tg://webproxy")
+                                || url.startsWith("tg:socks") || url.startsWith("tg://socks");
                     }
                 }
             }
@@ -2901,7 +2902,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             } else if (error != null) {
                                 if ("URL_EXPIRED".equalsIgnoreCase(error.text)) {
                                     OAuthSheet.getBulletinFactory()
-                                        .createSimpleBulletin(R.raw.error, getString(R.string.BotAuthLoggedInFailTitle), getString(R.string.BotAuthLoggedInFailNoDomain))
+                                        .createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.BotAuthLoggedInFailTitle), LocaleController.getString(R.string.BotAuthLoggedInFailNoDomain))
                                         .show();
                                 } else {
                                     OAuthSheet.getBulletinFactory().showForError(error);
@@ -3350,7 +3351,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         final LoginActivity loginActivity = new LoginActivity().changeEmail(() -> {
             Bulletin.LottieLayout layout = new Bulletin.LottieLayout(this, null);
             layout.setAnimation(R.raw.email_check_inbox);
-            layout.textView.setText(getString(R.string.YourLoginEmailChangedSuccess));
+            layout.textView.setText(LocaleController.getString(R.string.YourLoginEmailChangedSuccess));
             int duration = Bulletin.DURATION_SHORT;
 
             BaseFragment fragment = getLastFragment();
@@ -3376,9 +3377,9 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
 
             new AlertDialog.Builder(this)
                     .setTitle(spannable)
-                    .setMessage(getString(R.string.EmailLoginChangeMessage))
-                    .setPositiveButton(getString(R.string.ChangeEmail), (dialog, which) -> presentFragment(loginActivity))
-                    .setNegativeButton(getString(R.string.Cancel), null)
+                    .setMessage(LocaleController.getString(R.string.EmailLoginChangeMessage))
+                    .setPositiveButton(LocaleController.getString(R.string.ChangeEmail), (dialog, which) -> presentFragment(loginActivity))
+                    .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
                     .show();
         } else {
             presentFragment(loginActivity);
@@ -4084,7 +4085,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             requestId[0] = GiftAuctionController.getInstance(currentAccount).requestGiftAuctionBySlug(stargiftPreviewSlug, (res, err) -> {
                 if (err != null) {
                     BulletinFactory.of(mainFragmentsStack.get(mainFragmentsStack.size() - 1))
-                            .createSimpleBulletin(R.raw.error, getString(R.string.GiftAuctionNotFound))
+                            .createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.GiftAuctionNotFound))
                             .show();
                 } else if (res != null) {
                     GiftAuctionController.Auction auction = GiftAuctionController.getInstance(currentAccount).getAuction(res.gift.id);
@@ -4103,7 +4104,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             requestId[0] = GiftAuctionController.getInstance(currentAccount).requestGiftAuctionBySlug(auctionSlug, (res, err) -> {
                 if (err != null) {
                     BulletinFactory.of(mainFragmentsStack.get(mainFragmentsStack.size() - 1))
-                            .createSimpleBulletin(R.raw.error, getString(R.string.GiftAuctionNotFound))
+                            .createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.GiftAuctionNotFound))
                             .show();
                 } else if (res != null) {
                     AuctionJoinSheet.show(LaunchActivity.this, null, currentAccount, 0, res.gift.id, null);
@@ -4124,11 +4125,11 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                     if (lastFragment == null) return;
                     if ("STARGIFT_ALREADY_BURNED".equalsIgnoreCase(error.text)) {
                         BulletinFactory.of(lastFragment)
-                            .createSimpleBulletin(R.raw.fire_on, getString(R.string.UniqueGiftNotFoundBurned))
+                            .createSimpleBulletin(R.raw.fire_on, LocaleController.getString(R.string.UniqueGiftNotFoundBurned))
                             .show();
                     } else {
                         BulletinFactory.of(lastFragment)
-                            .createSimpleBulletin(R.raw.error, getString(R.string.UniqueGiftNotFound))
+                            .createSimpleBulletin(R.raw.error, LocaleController.getString(R.string.UniqueGiftNotFound))
                             .show();
                     }
                 } else if (response instanceof TL_stars.TL_payments_uniqueStarGift) {
@@ -6083,9 +6084,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
                         SharedPreferences.Editor editor = MessagesController.getGlobalMainSettings().edit();
                         editor.putBoolean("proxy_enabled", false);
-                        editor.putBoolean("proxy_enabled_calls", false);
                         editor.commit();
-                        ConnectionsManager.setProxySettings(false, "", 1080, "", "", "");
+                        ConnectionsManager.setProxySettings(false, null);
                         NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
                         proxyErrorDialog = null;
                     }
@@ -6400,7 +6400,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             }
                             ArrayList<String> arrayList = new ArrayList<>();
                             arrayList.add(videoPath);
-                            SendMessagesHelper.prepareSendingDocuments(accountInstance, arrayList, arrayList, null, captionToSend, null, did, replyToMsg, replyToMsg, null, null, null, notify, scheduleDate, null, null, 0, 0, false, 0);
+                            SendMessagesHelper.prepareSendingDocuments(accountInstance, arrayList, arrayList, null, captionToSend, null, did, replyToMsg, replyToMsg, null, null, null, notify, scheduleDate, null, null, 0, false, 0);
                         } else if (photoPathsArray != null && photoPathsArray.size() > 0 && !photosEditorOpened) {
                             if (sendingText != null && sendingText.length() <= 1024 && photoPathsArray.size() == 1) {
                                 CharSequence[] m = new CharSequence[] { sendingText };
@@ -6408,7 +6408,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                                 photoPathsArray.get(0).caption = m[0].toString();
                                 sendingText = null;
                             }
-                            SendMessagesHelper.prepareSendingMedia(accountInstance, photoPathsArray, did, replyToMsg, replyToMsg, null, null, false, photoPathsArray.size() > 1, null, notify, scheduleDate, scheduleRepeatPeriod, 0, false, null, null, 0, 0, false, 0, 0, null);
+                            SendMessagesHelper.prepareSendingMedia(accountInstance, photoPathsArray, did, replyToMsg, replyToMsg, null, null, false, photoPathsArray.size() > 1, null, notify, scheduleDate, scheduleRepeatPeriod, 0, false, null, null, 0, false, 0, 0, null);
                         }
                     } else {
                         if (videoPath != null) {
@@ -6418,7 +6418,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             }
                             ArrayList<String> arrayList = new ArrayList<>();
                             arrayList.add(videoPath);
-                            SendMessagesHelper.prepareSendingDocuments(accountInstance, arrayList, arrayList, null, captionToSend, null, did, replyToMsg, replyToMsg, null, null, null, notify, scheduleDate, null, null, 0, 0, false, 0);
+                            SendMessagesHelper.prepareSendingDocuments(accountInstance, arrayList, arrayList, null, captionToSend, null, did, replyToMsg, replyToMsg, null, null, null, notify, scheduleDate, null, null, 0, false, 0);
                         }
                         if (photoPathsArray != null && !photosEditorOpened) {
                             if (sendingText != null && sendingText.length() <= 1024 && photoPathsArray.size() == 1) {
@@ -6427,7 +6427,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                                 photoPathsArray.get(0).caption = m[0].toString();
                                 sendingText = null;
                             }
-                            SendMessagesHelper.prepareSendingMedia(accountInstance, photoPathsArray, did, replyToMsg, replyToMsg, null, null, false, photoPathsArray.size() > 1, null, notify, scheduleDate, scheduleRepeatPeriod, 0, false, null, null, 0, 0, false, 0, 0, null);
+                            SendMessagesHelper.prepareSendingMedia(accountInstance, photoPathsArray, did, replyToMsg, replyToMsg, null, null, false, photoPathsArray.size() > 1, null, notify, scheduleDate, scheduleRepeatPeriod, 0, false, null, null, 0, false, 0, 0, null);
                         }
                     }
                     if (documentsPathsArray != null || documentsUrisArray != null) {
@@ -6435,7 +6435,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                             captionToSend = sendingText;
                             sendingText = null;
                         }
-                        SendMessagesHelper.prepareSendingDocuments(accountInstance, documentsPathsArray, documentsOriginalPathsArray, documentsUrisArray, captionToSend, documentsMimeType, did, replyToMsg, replyToMsg, null, null, null, notify, scheduleDate, null, null, 0, 0, false, 0);
+                        SendMessagesHelper.prepareSendingDocuments(accountInstance, documentsPathsArray, documentsOriginalPathsArray, documentsUrisArray, captionToSend, documentsMimeType, did, replyToMsg, replyToMsg, null, null, null, notify, scheduleDate, null, null, 0, false, 0);
                     }
                     if (voicePath != null) {
                         File file = new File(voicePath);
@@ -6817,6 +6817,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
         pipActivityHandler.setPictureInPictureParams(params);
     }
 
+    @Override
+    public void onPictureInPictureUiStateChanged(@NonNull PictureInPictureUiState pipState) {
+        super.onPictureInPictureUiStateChanged(pipState);
+        pipActivityHandler.onPictureInPictureUiStateChanged(pipState);
+    }
+
     @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, @NonNull Configuration newConfig) {
@@ -6938,6 +6944,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             editorView.destroy();
         }
         FloatingDebugController.onDestroy();
+        AnimatedEmojiDrawable.dropGlobalEmojiCache();
         if (BuildConfig.DEBUG_PRIVATE_VERSION) {
             LeakDetector.getInstance().stop();
         }
@@ -7197,8 +7204,8 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             builder.setTitle(LocaleController.getString(R.string.AppName));
             if (fragment != null) {
                 Map<String, Integer> colorsReplacement = new HashMap<>();
-                colorsReplacement.put("info1.**", fragment.getThemedColor(Theme.key_dialogTopBackground));
-                colorsReplacement.put("info2.**", fragment.getThemedColor(Theme.key_dialogTopBackground));
+                colorsReplacement.put("info1", fragment.getThemedColor(Theme.key_dialogTopBackground));
+                colorsReplacement.put("info2", fragment.getThemedColor(Theme.key_dialogTopBackground));
                 builder.setTopAnimation(R.raw.not_available, AlertsCreator.NEW_DENY_DIALOG_TOP_ICON_SIZE, false, fragment.getThemedColor(Theme.key_dialogTopBackground), colorsReplacement);
                 builder.setTopAnimationIsNew(true);
             }
@@ -7694,10 +7701,10 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 AlertDialog.Builder builder = new AlertDialog.Builder(this, null);
                 builder.setTitle("TL Error");
                 builder.setMessage(messageToShow);
-                builder.setNegativeButton(getString(R.string.Copy), (d, i) -> {
+                builder.setNegativeButton(LocaleController.getString(R.string.Copy), (d, i) -> {
                     AndroidUtilities.addToClipboard(messageToCopy);
                 });
-                builder.setPositiveButton(getString(R.string.OK), null);
+                builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
                 builder.setOnDismissListener(d -> {
                     AndroidUtilities.runOnUIThread(() -> {
                         tlErrorAlertDialog = null;
@@ -7722,7 +7729,7 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
                 AlertDialog.Builder builder = new AlertDialog.Builder(this, null);
                 builder.setTitle("Memory Leak Found");
                 builder.setMessage(messageToShow);
-                builder.setPositiveButton(getString(R.string.OK), null);
+                builder.setPositiveButton(LocaleController.getString(R.string.OK), null);
                 builder.setOnDismissListener(d -> {
                     AndroidUtilities.runOnUIThread(() -> {
                         memoryLeakErrorAlertDialog = null;
